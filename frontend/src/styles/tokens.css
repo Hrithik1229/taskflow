@@ -1,0 +1,107 @@
+:root {
+  /* Core brand colors */
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-green-600: #16a34a;
+  --color-red-600: #dc2626;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-purple-600: #7c3aed;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Typography */
+  --font-sans:
+    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+
+  /* Light Theme (default) */
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f1f5f9;
+  --color-surface-hover: #f8fafc;
+  --color-surface-elevated: #ffffff;
+  --color-topbar-bg: rgba(255, 255, 255, 0.92);
+
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+
+  --color-blue-subtle: #eff6ff;
+  --color-blue-border: #bfdbfe;
+  --color-green-subtle: #f0fdf4;
+  --color-red-subtle: #fef2f2;
+  --color-red-border: #fecaca;
+  --color-purple-subtle: #f5f3ff;
+  --color-purple-text: #6d28d9;
+
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 6%);
+  --shadow-md: 0 4px 12px rgb(15 23 42 / 8%);
+  --shadow-lg: 0 12px 28px rgb(15 23 42 / 12%);
+  --shadow-card: 0 1px 3px rgb(15 23 42 / 5%), 0 6px 16px rgb(15 23 42 / 4%);
+  --shadow-card-hover: 0 8px 24px rgb(15 23 42 / 10%), 0 2px 6px rgb(15 23 42 / 6%);
+  --shadow-modal: 0 20px 50px rgb(15 23 42 / 20%);
+  --backdrop-color: rgba(15, 23, 42, 0.45);
+
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Dark Theme */
+  --color-background: #090d16;
+  --color-surface: #111827;
+  --color-surface-subtle: #172134;
+  --color-surface-hover: #1f2d47;
+  --color-surface-elevated: #162035;
+  --color-topbar-bg: rgba(17, 24, 39, 0.88);
+
+  --color-blue-500: #60a5fa;
+  --color-blue-600: #3b82f6;
+  --color-blue-700: #2563eb;
+
+  --color-slate-100: #182234;
+  --color-slate-200: #24324a;
+  --color-slate-300: #364867;
+  --color-slate-400: #7b8fa7;
+  --color-slate-500: #93a5bc;
+  --color-slate-600: #c2d0e0;
+  --color-slate-700: #dce5ef;
+  --color-slate-800: #edf3f9;
+  --color-slate-900: #f8fafc;
+  --color-slate-950: #ffffff;
+
+  --color-blue-subtle: rgba(59, 130, 246, 0.16);
+  --color-blue-border: rgba(96, 165, 250, 0.35);
+  --color-green-subtle: rgba(34, 197, 94, 0.16);
+  --color-red-subtle: rgba(239, 68, 68, 0.16);
+  --color-red-border: rgba(239, 68, 68, 0.35);
+  --color-purple-subtle: rgba(168, 85, 247, 0.18);
+  --color-purple-text: #c084fc;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 4px 14px rgb(0 0 0 / 50%);
+  --shadow-lg: 0 12px 30px rgb(0 0 0 / 60%);
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 40%), 0 6px 16px rgb(0 0 0 / 30%);
+  --shadow-card-hover: 0 8px 24px rgb(0 0 0 / 60%), 0 2px 6px rgb(0 0 0 / 40%);
+  --shadow-modal: 0 24px 60px rgb(0 0 0 / 75%);
+  --backdrop-color: rgba(0, 0, 0, 0.65);
+}
