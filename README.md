@@ -1,319 +1,334 @@
-# TaskFlow
+# TaskFlow — Real-Time Collaborative Task Manager
 
-TaskFlow is a real-time collaborative task manager for teams. Its foundation is
-built around a FastAPI backend, a React frontend, PostgreSQL, and Socket.IO.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-4+-010101?style=flat-square&logo=socketdotio&logoColor=white)](https://socket.io)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0_Async-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
+[![Tests](https://img.shields.io/badge/Tests-pytest_%7C_vitest-brightgreen?style=flat-square)](https://docs.pytest.org)
 
-## Features
+**TaskFlow** is a modern, real-time collaborative task management platform engineered for teams. It combines an asynchronous Python/FastAPI backend, an interactive React Kanban board, and PostgreSQL persistence with live Socket.IO synchronisation.
 
-- Create projects, manage memberships and roles, and enforce project-scoped
-  permissions.
-- Organize assigned work on a Kanban board with priorities, due dates, filters,
-  and optimistic concurrency protection.
-- Submit tasks for review, assign reviewers, and track completion attribution.
-- See dashboard totals and open per-project task breakdowns.
-- Receive live project updates and personal notifications over Socket.IO.
-- Sign in with JWT authentication and manage a light/dark theme.
+The guiding architectural principle is **Trustworthy Collaboration**:
+- **PostgreSQL is the single source of truth.** Realtime is a delivery mechanism, not the source of truth.
+- Every state change validates caller permissions against live database membership and commits to PostgreSQL in an atomic transaction before any event is broadcasted.
+- Writes are guarded by **optimistic concurrency control** (`version` tracking) and advisory locking to eliminate lost updates, race conditions, and out-of-order mutations.
+- Real-time updates update the DOM cleanly without page reloads, visual jumps, or layout flickering.
 
-## Stack
+---
 
-- Backend: Python, FastAPI, SQLAlchemy async, PostgreSQL, Socket.IO
-- Frontend: React, Vite, JavaScript, React Router
-- Tests and tooling: pytest, Ruff, Vitest, React Testing Library, ESLint
+## Key Features
 
-## Prerequisites
+### 📋 Interactive Kanban Board & Tasks
+- **4-Column Workflow**: `To do`, `In progress`, `Review`, and `Completed`.
+- **Drag-and-Drop**: Fluid, accessible card reordering and cross-column transitions powered by `@dnd-kit`.
+- **Priority Indicator Strips**: Color-coded visual accents for `Urgent` (crimson), `High` (amber), `Medium` (blue), and `Low` (slate).
+- **Quick Creation**: Column-specific `+` buttons to immediately open task creation pre-set to that status.
+- **Due Date & Overdue Tracking**: Formatted timestamps with highlighted overdue pills.
+- **Detailed Task Modal**: Edit titles, rich descriptions, assignees, priorities, and statuses, or delete with confirmation.
 
-- Python 3.12 or newer
-- Node.js 20 or newer and npm
-- Docker Compose (optional, for local PostgreSQL)
+### 🔍 Search, Filtering & Instant Metrics
+- **Live Search**: Debounced, SQL-injection-safe search across task titles and descriptions.
+- **Multi-criteria Filtering**: Filter by priority, assignee, status, or overdue status.
+- **1-Click "👤 My tasks"**: Instantly isolates tasks assigned to the signed-in user.
+- **Filter Reset**: One-click reset pill showing active filter count.
+- **Board Metrics Bar**: Live header stats displaying Total Tasks, Completed count with completion percentage, and Urgent count.
 
-## Local setup
+### 🔄 Review & Approval Workflow
+- **Assigned Reviewer**: Submitting a task to `Review` requires selecting an assigned reviewer.
+- **Separation of Duties**: Submitters cannot approve or review their own tasks.
+- **Controlled Transitions**: Only the assigned reviewer, project owner, or admin can move a task out of `Review` to `In progress` or `Completed`.
+- **Completion Attribution**: Automatic tracking of who completed each task and who reviewed it, persisted in task records and activity logs.
 
-1. Copy `backend/.env.example` to `backend/.env` and replace both development
-   secret placeholders with long, unique random values. These files are local
-   configuration and must never be committed.
-2. Copy `frontend/.env.example` to `frontend/.env`.
-3. Start PostgreSQL with `docker compose up -d db`. The Compose
-   defaults (`taskflow_dev` / `taskflow_dev_only`) are for local development
-   only. On first initialization, Compose also creates the `taskflow_test`
-   database used by integration tests.
-4. In a PowerShell terminal:
+### ⚡ Real-Time Collaboration & Synchronization
+- **Live Room Sockets**: Connected users join project rooms authenticated with JWT tokens.
+- **Visual Connection Indicators**: Pulsating green dot for **Live**, amber for **Reconnecting**, and neutral for **Offline**.
+- **Background Sync Pill**: Animated `Syncing…` badge when updates are synchronizing in the background without layout shifts.
+- **Zero-Flicker Architecture**: Background refreshes and room recoveries keep existing cards mounted and preserved without flash-of-skeleton flickering.
+- **Echo Suppression**: Client mutation IDs (`X-Client-Mutation-Id`) prevent echoing an author's own actions back to them.
 
-   ```powershell
-   cd backend
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements-dev.txt
-   alembic upgrade head
-   ```
+### 🌓 Theme System (Light / Dark Mode)
+- **Seamless Theme Toggle**: Accessible sun/moon switch in the navigation bar.
+- **Persistent Preference**: Remembers the selected theme in `localStorage` (`taskflow_theme`).
+- **System Sync**: Automatically detects and adapts to OS `prefers-color-scheme` preferences.
 
-   If PowerShell blocks activation, use
-   `.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt` and
-   `.\.venv\Scripts\python.exe -m alembic upgrade head`.
-5. In another terminal, install and start the frontend:
+### 🛡️ Authentication & Role-Based Access Control (RBAC)
+- **Argon2id Password Hashing**: State-of-the-art password security with `pwdlib`.
+- **JWT Authentication**: Short-lived access tokens with automatic 401 recovery and memory/session storage.
+- **Rate Limiting**: Sliding-window limiter on `/api/auth/login` and `/api/auth/register` (10 req/min by IP + email).
+- **Role Hierarchy**: Project permissions scoped to `owner`, `admin`, and `member`.
 
-   ```powershell
-   cd frontend
-   npm install
-   npm run dev
-   ```
-6. Start the API from `backend` in a separate terminal:
+---
 
-   ```powershell
-   .\.venv\Scripts\python.exe -m uvicorn app.main:asgi_app --reload --port 8000
-   ```
-7. Open the Vite URL printed in the terminal (normally
-   `http://localhost:5173`). The backend health endpoint is
-   `http://localhost:8000/api/health`.
+## Role & Permission Matrix
 
-The frontend uses the health endpoint to display the real API connection
-state. The API and Socket.IO share port 8000. `backend/.env.example` contains
-the local database URLs and allowed CORS origins; do not use the development
-defaults or example secrets outside a local environment.
+Permissions are validated dynamically against PostgreSQL on every single request:
 
-## Tests and checks
+| Capability | Owner | Admin | Member |
+| :--- | :---: | :---: | :---: |
+| Edit project settings & delete project | ✅ | ❌ | ❌ |
+| Invite & add members | ✅ (as Member or Admin) | ✅ (as Member only) | ❌ |
+| Change member roles | ✅ (Promote/Demote) | ❌ | ❌ |
+| Remove member | ✅ (Any non-owner) | ✅ (Members only) | ✅ (Self-removal only) |
+| Create tasks | ✅ | ✅ | ✅ |
+| Edit task details / delete task | ✅ (Any task) | ✅ (Any task) | ✅ (Created by or assigned to self) |
+| Assign / change reviewer in `Review` | ✅ | ✅ | ✅ (Submitter or assigned reviewer) |
+| Move tasks into `Review` | ✅ | ✅ | ✅ |
+| Approve / reject task out of `Review` | ✅ | ✅ | ✅ (Assigned reviewer only) |
+| View project board & activity | ✅ | ✅ | ✅ |
 
-Run backend checks from `backend` (PostgreSQL must be running for the full
-database-backed suite):
+> **Note:** Removing a project member automatically unassigns their tasks in the same transaction, clears reviewer references, increments task versions, and records activity.
 
-```powershell
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m pytest -q
+---
+
+## Tech Stack
+
+### Backend
+- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.12+)
+- **ASGI Server**: [Uvicorn](https://www.uvicorn.org/) wrapped with [python-socketio](https://python-socketio.readthedocs.io/) `ASGIApp`
+- **ORM & Database**: [SQLAlchemy 2.0](https://www.sqlalchemy.org/) (AsyncSession, async engine) with [asyncpg](https://github.com/MagicStack/asyncpg) & [PostgreSQL](https://www.postgresql.org/)
+- **Migrations**: [Alembic](https://alembic.sqlalchemy.org/)
+- **Data Validation & Settings**: [Pydantic v2](https://docs.pydantic.dev/) & [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- **Security**: [pwdlib](https://github.com/frankie567/pwdlib) with Argon2id & [PyJWT](https://pyjwt.readthedocs.io/)
+- **Code Quality & Testing**: [Ruff](https://astral.sh/ruff), [pytest](https://docs.pytest.org/), [pytest-asyncio](https://github.com/pytest-dev/pytest-asyncio), [HTTPX](https://www.python-httpx.org/)
+
+### Frontend
+- **Runtime & Bundler**: [React 19](https://react.dev/) + [Vite](https://vitejs.dev/) (pure JavaScript)
+- **Routing**: [React Router v7](https://reactrouter.com/)
+- **Drag and Drop**: [@dnd-kit/core](https://dndkit.com/) & [@dnd-kit/sortable](https://dndkit.com/)
+- **Realtime Client**: [socket.io-client](https://socket.io/docs/v4/client-api/)
+- **HTTP Client**: [Axios](https://axios-http.com/) with interceptors & mutation IDs
+- **Styling**: Pure CSS with design tokens (`tokens.css`), responsive layouts, and light/dark theme variables
+- **Testing & Tooling**: [Vitest](https://vitest.dev/), [React Testing Library](https://testing-library.com/), [ESLint](https://eslint.org/)
+
+---
+
+## Project Structure
+
+```
+Real-Time Collaborative Task Manager/
+├── backend/
+│   ├── alembic/              # Database migration versions and env.py
+│   ├── app/
+│   │   ├── common/           # Error classes, rate limiting, logging
+│   │   ├── models/           # SQLAlchemy 2.0 async models (Base, User, Project, Task, etc.)
+│   │   ├── routers/          # FastAPI routers (auth, projects, tasks, dashboard)
+│   │   ├── schemas/          # Pydantic v2 request and response schemas
+│   │   ├── security/         # JWT utilities, passwords (Argon2id), permissions
+│   │   ├── services/         # Business logic (transactions, task moves, audit logs)
+│   │   ├── sockets/          # Socket.IO AsyncServer, handlers, rooms, auth
+│   │   ├── config.py         # pydantic-settings Settings with env validation
+│   │   ├── database.py       # Async engine, sessionmaker, and get_session dependency
+│   │   └── main.py           # FastAPI initialization, middlewares, ASGI socketio app
+│   ├── scripts/              # Database seed script for local demo data
+│   ├── tests/                # Database integration and unit test suite
+│   ├── requirements.txt      # Production Python dependencies
+│   ├── requirements-dev.txt  # Development & test dependencies
+│   └── pyproject.toml        # Ruff and pytest configuration
+│
+├── frontend/
+│   ├── src/
+│   │   ├── api/              # Axios client, auth API, health check
+│   │   ├── components/       # Reusable UI (Avatar, Badge, Modal, ConfirmDialog, ThemeToggle)
+│   │   ├── context/          # AuthContext, ThemeContext, ToastContext
+│   │   ├── features/         # Domain modules (projects, tasks, real-time event reducer)
+│   │   ├── hooks/            # useProjectRealtime and custom React hooks
+│   │   ├── layouts/          # AppShell layout with sidebar, topbar, user menu
+│   │   ├── pages/            # Views (DashboardPage, ProjectPage, BoardPage, MembersPage, Auth)
+│   │   ├── realtime/         # Socket client management and client mutation tracker
+│   │   ├── styles/           # tokens.css design system tokens and theme variables
+│   │   ├── App.css           # Core SaaS styling, Kanban layout, responsive rules
+│   │   └── main.jsx          # Application entrypoint
+│   ├── package.json          # Frontend dependencies and npm scripts
+│   ├── vite.config.js        # Vite build and Vitest configuration
+│   └── eslint.config.js      # ESLint configuration
+│
+├── docs/
+│   └── database.md           # Database schema, delete constraints, and migration details
+├── docker-compose.yml        # Local PostgreSQL container service
+└── README.md
 ```
 
-Run frontend checks from `frontend`:
+---
 
+## Getting Started
+
+### Prerequisites
+- **Python 3.12+**
+- **Node.js 20+** and **npm**
+- **Docker Compose** (recommended for local PostgreSQL) or a local PostgreSQL 15+ installation
+
+---
+
+### Step 1: Clone and Configure Environment
+
+1. Set up the backend environment:
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
+   *Edit `backend/.env` and supply secure random values for `APP_SECRET_KEY` and `JWT_SECRET_KEY`.*
+
+2. Set up the frontend environment:
+   ```bash
+   cp frontend/.env.example frontend/.env
+   ```
+
+---
+
+### Step 2: Start PostgreSQL Database
+
+Using Docker Compose:
+```bash
+docker compose up -d db
+```
+This spins up PostgreSQL on port `5432` with development and test databases (`taskflow_dev` and `taskflow_test`).
+
+*(Alternatively, ensure your local PostgreSQL service is running and update `DATABASE_URL` in `backend/.env` accordingly).*
+
+---
+
+### Step 3: Setup and Run the Backend
+
+**PowerShell (Windows):**
 ```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+alembic upgrade head
+python -m uvicorn app.main:asgi_app --reload --port 8000
+```
+
+**Bash (Linux / macOS):**
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+alembic upgrade head
+python -m uvicorn app.main:asgi_app --reload --port 8000
+```
+
+The API and Socket.IO server are now running on **`http://localhost:8000`**.  
+Health check endpoint: **`http://localhost:8000/api/health`**.
+
+---
+
+### Step 4: Seed Demo Data (Optional)
+
+In another terminal with the virtual environment activated, run:
+```bash
+python scripts/seed_dev.py
+```
+This provisions sample projects, members, and Kanban tasks with two demo accounts:
+- **Owner**: `demo.owner@example.com` / `TaskFlowDemoOwner1!`
+- **Member**: `demo.member@example.com` / `TaskFlowDemoMember1!`
+
+*(These credentials are for local development fixtures only).*
+
+---
+
+### Step 5: Setup and Run the Frontend
+
+Open a new terminal:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend application will be live at **`http://localhost:5173`**.
+
+---
+
+## Running Tests & Quality Checks
+
+### Backend Checks
+From the `backend` directory:
+```bash
+# Run Ruff lint check
+python -m ruff check .
+
+# Run Ruff formatting check
+python -m ruff format --check .
+
+# Run pytest test suite (requires PostgreSQL running for integration tests)
+python -m pytest
+```
+
+### Frontend Checks
+From the `frontend` directory:
+```bash
+# Run ESLint
 npm run lint
+
+# Run Vitest unit & component test suite
 npm run test -- --run
+
+# Run production bundle build
 npm run build
 ```
 
-## Authentication
+---
 
-Registration is available at `POST /api/auth/register` and creates a user
-without returning a token; the frontend signs in immediately afterward.
-`POST /api/auth/login` issues a single short-lived access JWT (30 minutes by
-default), and `GET /api/auth/me` validates it and loads the current user from
-PostgreSQL. There is intentionally no refresh-token endpoint. The browser
-keeps the access token in memory and `sessionStorage`, clears it on a protected
-401, and returns the user to sign-in. Passwords must be 8–128 characters; no
-additional character-composition rule is imposed.
+## API Overview
 
-Login and registration have an in-memory sliding-window limit (10 requests per
-minute by IP and by normalized email by default). This is process-local and
-intended for the single-worker MVP; distributed deployments need a shared
-rate-limit store.
+### Authentication (`/api/auth`)
+- `POST /api/auth/register` — Register a new account (`UserRead`).
+- `POST /api/auth/login` — Sign in and receive a JWT access token (`TokenResponse`).
+- `GET /api/auth/me` — Retrieve the authenticated profile (`UserRead`).
 
-For development only, run `python scripts/seed_dev.py` from `backend` after
-migrations. It creates demo users and a demo project with hashed passwords:
+### Projects & Memberships (`/api/projects`)
+- `POST /api/projects` — Create a project (caller becomes sole `owner`).
+- `GET /api/projects` — List projects where caller has an active membership.
+- `GET /api/projects/{project_id}` — Get project metadata, member counts, caller role.
+- `PATCH /api/projects/{project_id}` — Update project name or description (Owner only).
+- `DELETE /api/projects/{project_id}` — Permanently delete project and all associated tasks (Owner only).
+- `GET /api/projects/{project_id}/members` — List all project collaborators.
+- `POST /api/projects/{project_id}/members` — Invite/add a member by email.
+- `PATCH /api/projects/{project_id}/members/{user_id}` — Change member role (Owner only).
+- `DELETE /api/projects/{project_id}/members/{user_id}` — Remove member or leave project.
 
-- `demo.owner@example.com` / `TaskFlowDemoOwner1!`
-- `demo.member@example.com` / `TaskFlowDemoMember1!`
+### Tasks & Kanban Board (`/api/tasks`)
+- `GET /api/projects/{project_id}/tasks` — Query tasks with filters (`q`, `status`, `priority`, `assigned_to`, `overdue`, pagination).
+- `POST /api/projects/{project_id}/tasks` — Create a task in a project.
+- `GET /api/tasks/{task_id}` — Retrieve task details and review attribution.
+- `PATCH /api/tasks/{task_id}` — Update task fields with optimistic `expected_version`.
+- `PATCH /api/tasks/{task_id}/move` — Reorder or move task across columns with advisory locking.
+- `DELETE /api/tasks/{task_id}` — Delete a task.
 
-These credentials are public development fixtures and must never be reused
-outside a local development database.
+### Dashboard (`/api/dashboard`)
+- `GET /api/dashboard/summary` — Aggregate task totals across all caller's projects (`total`, `assigned_to_me`, `overdue`, `completed`).
+- `GET /api/dashboard/summary/breakdown?metric={metric}` — Group tasks by project for a specific metric.
 
-## Projects and membership
+---
 
-Authenticated project endpoints are available under `/api/projects`:
+## Real-Time Socket.IO Protocol
 
-- `POST /api/projects` creates a project and makes its creator the sole owner.
-- `GET /api/projects?offset=0&limit=20` lists only the caller's memberships.
-- `GET`, `PATCH`, and `DELETE /api/projects/{project_id}` read, update, or
-  delete a project.
-- `GET` and `POST /api/projects/{project_id}/members` list or add members.
-- `PATCH` and `DELETE /api/projects/{project_id}/members/{user_id}` change a
-  role or remove a member. Non-owner members may remove themselves to leave.
+The FastAPI application and Python-SocketIO server run together as a unified ASGI app. Clients authenticate with their JWT token in the handshake auth object and join rooms scoped to their projects (`project:{project_id}`).
 
-Authorization is checked against a live database membership on each request.
-Non-members receive `404` for project and member resources; members who lack a
-permission receive `403`.
+| Event Name | Room Scope | Payload Details |
+| :--- | :--- | :--- |
+| `task_created` | `project:{project_id}` | Full created task payload + actor summary |
+| `task_updated` | `project:{project_id}` | Updated task payload with incremented `version` |
+| `task_moved` | `project:{project_id}` | Moved task, updated positions, and affected sibling patches |
+| `task_deleted` | `project:{project_id}` | Tombstone payload with deleted task ID |
+| `member_changed` | `project:{project_id}` | Action (`added`, `role_changed`, `removed`) and member summary |
+| `removed_from_project` | `user:{user_id}` | Direct revocation alert instructing client to leave room |
+| `project_updated` | `project:{project_id}` | Updated project title and description |
+| `project_deleted` | `project:{project_id}` | Project deletion alert navigating members to dashboard |
 
-| Action | Owner | Admin | Member |
-| --- | --- | --- | --- |
-| Edit project settings / delete project | Yes | No | No |
-| Add member | Member or admin | Member only | No |
-| Change roles | Promote member or demote admin | No | No |
-| Remove member | Any non-owner | Members only | Self only |
-| Create task | Yes | Yes | Yes |
-| Edit task fields / delete task | Any task | Any task | Created by or assigned to caller |
-| Change reviewer while in Review | Any task | Any task | Submitter or current reviewer |
-| Move tasks other than out of Review | Any task | Any task | Any task |
-| Move from Review to In progress / Completed | Any task | Any task | Assigned reviewer only |
-| View activity | Yes | Yes | Yes |
+---
 
-Project/member writes and their activity records commit together. Removing a
-member also unassigns their project tasks in the same transaction, increments
-each affected task version, clears that person's reviewer and completion-credit
-references, and records activity for those changes. Project deletion does not
-create an activity row because the project and its activity are deleted together.
+## Database Architecture
 
-## Tasks and board
+For complete database documentation including constraints, foreign keys, cascade rules, advisory locks, and migration histories, refer to:
+📖 **[docs/database.md](./docs/database.md)**
 
-Tasks are available through `POST` and `GET /api/projects/{project_id}/tasks`,
-`GET`, `PATCH`, and `DELETE /api/tasks/{task_id}`, and
-`PATCH /api/tasks/{task_id}/move`. Project task listing supports status,
-assignee, priority, due-date bounds, overdue-only, literal text search (`q`),
-pagination, and stable sorting. Search treats `%`, `_`, and `\` as literal
-characters. Board requests can return up to 500 tasks; the frontend uses that
-cap and groups tasks by status and persisted position.
+---
 
-Due dates must be timezone-aware; aware values are normalized to UTC. Task
-updates and moves require `expected_version`. A stale write returns HTTP 409
-with `code: "version_conflict"` and the current task representation. Ordering
-changes use a PostgreSQL transaction advisory lock scoped to the project,
-followed by deterministic task-row locks for moves. Changed sibling positions
-also increment their versions. Task changes, activity rows, notifications for
-assignment/reassignment and review decisions, and pending realtime event
-descriptors are handled together. Task mutations accept
-`X-Client-Mutation-Id`; the frontend generates one per request and suppresses
-its matching socket echo.
+## License
 
-`GET /api/dashboard/summary` returns real totals for the caller's projects:
-total tasks, tasks assigned to the caller, overdue unfinished tasks, and
-completed tasks. The assigned-to-me total includes completed tasks, matching
-the existing summary definition. `GET /api/dashboard/summary/breakdown?metric=total`
-accepts `total`, `overdue`, `completed`, or `assigned_to_me` and groups the
-same metric by projects where the caller is currently a member. For example:
-
-```http
-GET /api/dashboard/summary/breakdown?metric=completed
-Authorization: Bearer <access-token>
-```
-
-```json
-{
-  "metric": "completed",
-  "total_count": 1,
-  "projects": [
-    {
-      "project_id": "project-uuid",
-      "project_name": "Launch plan",
-      "count": 1,
-      "has_more": false,
-      "tasks": [
-        {
-          "id": "task-uuid",
-          "title": "Review approved",
-          "status": "completed",
-          "priority": "high",
-          "due_at": null,
-          "assignee": null,
-          "completed_by": { "id": "user-uuid", "username": "Taylor" }
-        }
-      ]
-    }
-  ]
-}
-```
-
-Counts are exact; at most 20 task rows are returned for each project, with
-`has_more` indicating truncation. Invalid metrics return 422 and non-members'
-projects are omitted. `total` includes every task in current member projects;
-`overdue` uses `due_at < current UTC time` and excludes completed tasks;
-`completed` selects completed tasks; `assigned_to_me` includes all statuses.
-
-Tasks cannot be created directly in Review. Move a task into Review through
-`PATCH /api/tasks/{task_id}/move` and include the current member who will
-review it:
-
-```json
-{
-  "status": "review",
-  "position": 0,
-  "expected_version": 4,
-  "reviewer_id": "reviewer-uuid"
-}
-```
-
-The submitter cannot review their own task. While a task is in Review,
-`PATCH /api/tasks/{task_id}` may include `reviewer_id` and `expected_version`;
-only the submitter, current reviewer, owner, or admin may change it. Only the
-assigned reviewer, owner, or admin may move a task from Review to In progress
-or Completed. A Review task cannot move directly back to To do.
-
-Task responses include small `{id, username}` summaries for the reviewer,
-review submitter, last status mover, and credited completer, plus UTC status
-and completion timestamps. Direct completion credits the person who moved it
-to Completed. Completion from Review credits the submitter; the reviewer's
-decision actor remains in the activity log. Reopening clears completion credit
-and timestamp. Legacy tasks with unknown attribution remain uncredited; a
-removed member's completion credit displays as “Former member”.
-
-## Realtime events
-
-The API and Socket.IO share the same ASGI server and port. Clients connect with
-the JWT in the Socket.IO handshake `auth` payload, then join a project room.
-Project membership is rechecked against PostgreSQL on every join and broadcasts
-are sent only after the corresponding service transaction commits. A commit
-failure emits nothing; emission failures are logged and clients recover by
-refetching REST data on reconnect.
-
-Each event includes `event_id`, `type`, `project_id`, an `{id, username}` actor
-summary, UTC `occurred_at`, and nullable `client_mutation_id`. Event-specific
-data contains the committed task, membership, project, or notification
-representation.
-
-| Event | Room | Data |
-| --- | --- | --- |
-| `task_created`, `task_updated` | `project:{id}` | `task` with its version |
-| `task_moved`, `task_deleted` | `project:{id}` | `task` tombstone/representation and changed `affected` sibling patches |
-| `member_changed` | `project:{id}` | Membership change action and member summary |
-| `removed_from_project` | `user:{id}` | Final access-revocation notice |
-| `notification_created` | `user:{recipient_id}` | Recipient's notification |
-| `comment_added` | `project:{id}` | Reserved for the comments phase |
-| `project_created`, `project_updated`, `project_deleted` | `project:{id}` | Project summary; project events are contract extensions |
-
-When a member is removed, their connected sockets leave the project room before
-the final user-room notice is sent. The frontend rejoins after reconnect,
-replaces board data from REST, and bounds its processed-event ID set to
-deduplicate deliveries. The current in-memory Socket.IO room manager is
-single-worker only; multi-worker deployments require a shared client manager
-(for example, Redis) and coordinated deployment configuration.
-
-## Project documentation
-
-- Database model, delete behavior, migrations, and test DB isolation:
-  [docs/database.md](./docs/database.md)
-
-## Development status
-
-The project, membership, authorization, task, Kanban board, and authenticated
-Socket.IO flows are implemented in the backend and frontend. Comments and
-production multi-worker Socket.IO deployment are not implemented.
-
-## Push to GitHub
-
-Before publishing, check that the environment files contain only placeholders
-and that no real secrets or private data have been added to the project. The
-root `.gitignore` excludes local environment files, virtual environments,
-installed dependencies, and generated build/test output while keeping the
-`.env.example` templates and `frontend/package-lock.json`. No project license
-is included; add a license if you intend to grant others permission to use,
-modify, or distribute the project.
-
-Create an empty GitHub repository (do not initialize it with a README or
-license), then run these commands from the project root. Replace the remote
-URL with your repository URL:
-
-```powershell
-git init
-git add .
-git status
-# Confirm local .env files and generated directories are not staged.
-git commit -m "Initial TaskFlow project"
-git branch -M main
-git remote add origin https://github.com/<your-username>/<your-repository>.git
-git push -u origin main
-```
-
-If a real environment file was previously added to Git, remove it from the
-index before pushing (this keeps the local file). Repeat for any other
-environment file that was previously tracked:
-
-```powershell
-git rm --cached backend/.env frontend/.env
-```
-
-Review the GitHub repository's visibility and access settings before pushing.
+This project is open-source under the [MIT License](LICENSE) (or custom portfolio license).
