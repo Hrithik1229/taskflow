@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select, update
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.outbox import OutboxEvent
 from app.common.task_lock import lock_project_tasks
-from app.models import ActivityLog, ProjectMember, ProjectRole, Task, User
+from app.models import ActivityLog, Notification, ProjectMember, ProjectRole, Task, User
 from app.schemas.member import MemberAdd, MemberRead, MemberRoleUpdate
 from app.security.permissions import ProjectAction, require_action
 from app.services.tasks import _load_task
@@ -80,19 +80,32 @@ async def add_member_by_email(
         user_id=user.id,
         role=requested_role,
     )
-    session.add_all(
-        [
-            new_membership,
-            ActivityLog(
-                project_id=membership.project_id,
-                actor_id=actor_id,
-                action="member.added",
-                entity_type="member",
-                entity_id=user.id,
-                details={"role": requested_role.value},
-            ),
-        ]
-    )
+    items_to_add: list[object] = [
+        new_membership,
+        ActivityLog(
+            project_id=membership.project_id,
+            actor_id=actor_id,
+            action="member.added",
+            entity_type="member",
+            entity_id=user.id,
+            details={"role": requested_role.value},
+        ),
+    ]
+    notification = None
+    if user.id != actor_id:
+        notification = Notification(
+            id=uuid4(),
+            recipient_id=user.id,
+            project_id=membership.project_id,
+            actor_id=actor_id,
+            type="member_added",
+            payload={
+                "project_id": str(membership.project_id),
+                "role": requested_role.value,
+            },
+        )
+        items_to_add.append(notification)
+    session.add_all(items_to_add)
     try:
         await session.flush()
         await session.commit()
@@ -109,22 +122,42 @@ async def add_member_by_email(
         await session.rollback()
         raise
 
-    return (
-        _member_read(user, new_membership),
-        [
+    events: list[OutboxEvent] = [
+        OutboxEvent(
+            event="member_changed",
+            project_id=membership.project_id,
+            payload={
+                "action": "member.added",
+                "user_id": str(user.id),
+                "role": requested_role.value,
+                "member": _member_read(user, new_membership).model_dump(mode="json"),
+            },
+        )
+    ]
+    if notification is not None:
+        events.append(
             OutboxEvent(
-                event="member_changed",
+                event="notification_created",
                 project_id=membership.project_id,
                 payload={
-                    "action": "member.added",
-                    "user_id": str(user.id),
-                    "role": requested_role.value,
-                    "member": _member_read(user, new_membership).model_dump(
-                        mode="json"
-                    ),
+                    "recipient_id": str(notification.recipient_id),
+                    "client_mutation_id": None,
+                    "notification": {
+                        "id": str(notification.id),
+                        "type": notification.type,
+                        "created_at": (
+                            notification.created_at.isoformat()
+                            if notification.created_at
+                            else None
+                        ),
+                        "payload": notification.payload,
+                    },
                 },
             )
-        ],
+        )
+    return (
+        _member_read(user, new_membership),
+        events,
     )
 
 
@@ -299,6 +332,17 @@ async def remove_member(
                 details={"role": target.role.value},
             )
         )
+        notification = None
+        if target_user_id != actor_id:
+            notification = Notification(
+                id=uuid4(),
+                recipient_id=target_user_id,
+                project_id=membership.project_id,
+                actor_id=actor_id,
+                type="member_removed",
+                payload={"project_id": str(membership.project_id)},
+            )
+            session.add(notification)
         await session.delete(target)
         await session.commit()
     except Exception:
@@ -315,6 +359,27 @@ async def remove_member(
             },
         )
     ]
+    if notification is not None:
+        events.append(
+            OutboxEvent(
+                event="notification_created",
+                project_id=membership.project_id,
+                payload={
+                    "recipient_id": str(notification.recipient_id),
+                    "client_mutation_id": None,
+                    "notification": {
+                        "id": str(notification.id),
+                        "type": notification.type,
+                        "created_at": (
+                            notification.created_at.isoformat()
+                            if notification.created_at
+                            else None
+                        ),
+                        "payload": notification.payload,
+                    },
+                },
+            )
+        )
     for task_id in changed_task_ids:
         task_read = await _load_task(session, task_id)
         if task_read is None:

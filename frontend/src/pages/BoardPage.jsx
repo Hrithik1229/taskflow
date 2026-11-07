@@ -36,6 +36,8 @@ import {
 } from '../features/tasks/api'
 import { applyTaskEvent } from '../features/tasks/realtime'
 import { useTasks } from '../features/tasks/hooks'
+import TaskActivityContext from '../features/tasks/TaskActivityContext'
+import TaskComments from '../features/tasks/TaskComments'
 import useProjectRealtime from '../hooks/useProjectRealtime'
 
 const COLUMNS = [
@@ -1093,6 +1095,9 @@ export default function BoardPage() {
               </button>
             </div>
           </form>
+          <hr className="task-detail-divider" />
+          <TaskComments taskId={selectedTask.id} projectId={projectId} />
+          <TaskActivityContext taskId={selectedTask.id} projectId={projectId} />
         </Modal>
       )}
 

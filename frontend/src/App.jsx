@@ -11,6 +11,7 @@ import DashboardPage from './pages/DashboardPage'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
 import MembersPage from './pages/MembersPage'
+import ProjectActivityPage from './pages/ProjectActivityPage'
 import ProjectPage from './pages/ProjectPage'
 import RegisterPage from './pages/RegisterPage'
 import './App.css'
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="/projects/:projectId" element={<ProjectPage />}>
                   <Route path="board" element={<BoardPage />} />
                   <Route path="members" element={<MembersPage />} />
+                  <Route path="activity" element={<ProjectActivityPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

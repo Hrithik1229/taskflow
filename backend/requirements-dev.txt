@@ -1,4 +1,5 @@
 -r requirements.txt
 pytest-asyncio==1.4.0
-aiohttp==3.13.5
+pytest-cov>=6.0.0
+aiohttp>=3.14.5
 ruff==0.14.4

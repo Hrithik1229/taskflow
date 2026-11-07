@@ -19,6 +19,9 @@ vi.mock('../features/tasks/api', () => ({
   listProjectMembers: vi.fn(),
   listTasks: vi.fn(),
   updateTask: vi.fn(),
+  listComments: vi.fn().mockResolvedValue([]),
+  createComment: vi.fn(),
+  listProjectActivity: vi.fn().mockResolvedValue({ items: [], total: 0 }),
 }))
 
 vi.mock('../context/ToastContext.js', () => ({

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.js'
 import Avatar from '../components/Avatar'
+import NotificationsMenu from '../components/NotificationsMenu'
 import ThemeToggle from '../components/ThemeToggle'
 
 const FOCUSABLE =
@@ -140,6 +141,7 @@ export default function AppShell() {
           </button>
           <div className="topbar-spacer" />
           <div className="topbar-actions">
+            <NotificationsMenu />
             <ThemeToggle />
             <details className="user-menu">
               <summary aria-label="User menu">

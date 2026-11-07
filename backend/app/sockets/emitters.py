@@ -99,6 +99,18 @@ async def _publish_one(event: OutboxEvent, *, actor: User) -> None:
         )
         return
 
+    if event.event == "comment_added":
+        envelope = _envelope("comment_added", event.project_id, actor, payload)
+        envelope["comment"] = payload.get("comment")
+        envelope["task_id"] = payload.get("task_id")
+        await sio.emit(
+            "comment_added",
+            envelope,
+            room=f"project:{event.project_id}",
+            namespace=NAMESPACE,
+        )
+        return
+
     if event.event == "member_changed":
         member_payload = {
             "event_id": str(uuid4()),

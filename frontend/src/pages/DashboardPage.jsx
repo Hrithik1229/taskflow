@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.js'
 import { useToast } from '../context/ToastContext.js'
+import Avatar from '../components/Avatar'
 import Badge from '../components/Badge'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
+import { formatActivityText, relativeTime } from '../features/activity/activityUtils'
 import { getErrorMessage } from '../features/projects/api'
 import { useProjects } from '../features/projects/hooks'
 import * as taskApi from '../features/tasks/api'
@@ -44,6 +46,10 @@ export default function DashboardPage() {
   const [openMetric, setOpenMetric] = useState(null)
   const [breakdownState, setBreakdownState] = useState(null)
   const [breakdownRetry, setBreakdownRetry] = useState(0)
+  const [recentActivities, setRecentActivities] = useState([])
+  const [isActivityLoading, setIsActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState('')
+  const [activityRetry, setActivityRetry] = useState(0)
   const cardRefs = useRef({})
 
   const filteredProjects = useMemo(() => {
@@ -102,6 +108,36 @@ export default function DashboardPage() {
       active = false
     }
   }, [openMetric, taskSummary, breakdownRetry])
+
+  useEffect(() => {
+    let active = true
+    const fetcher =
+      typeof taskApi.getRecentActivity === 'function'
+        ? taskApi.getRecentActivity({ limit: 20 })
+        : Promise.resolve({ items: [] })
+
+    fetcher
+      .then((data) => {
+        if (active) {
+          setRecentActivities(data.items || [])
+          setActivityError('')
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setActivityError('Recent activity could not be loaded.')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsActivityLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activityRetry])
 
   useEffect(() => {
     if (!openMetric) return undefined
@@ -433,6 +469,88 @@ export default function DashboardPage() {
             </section>
           )}
         </div>
+      </section>
+
+      <section
+        className="dashboard-recent-activity"
+        aria-labelledby="recent-activity-heading"
+      >
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">ACROSS YOUR PROJECTS</p>
+            <h2 id="recent-activity-heading">Recent activity</h2>
+          </div>
+        </div>
+        {isActivityLoading ? (
+          <Skeleton count={3} />
+        ) : activityError ? (
+          <div className="activity-error-state" role="alert">
+            <p>{activityError}</p>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setActivityRetry((r) => r + 1)}
+            >
+              Try again
+            </button>
+          </div>
+        ) : recentActivities.length === 0 ? (
+          <EmptyState title="No recent activity">
+            Activity across your projects will show up here as your team collaborates.
+          </EmptyState>
+        ) : (
+          <ul className="activity-feed-list" aria-label="Recent activity">
+            {recentActivities.map((item) => {
+              const hasTaskLink =
+                item.entity_type === 'task' && item.action !== 'task.deleted'
+              return (
+                <li key={item.id} className="activity-feed-item">
+                  <Avatar name={item.actor?.username || 'User'} size="small" />
+                  <div className="activity-feed-content">
+                    <p className="activity-feed-text">
+                      {formatActivityText(item)}
+                    </p>
+                    <div className="activity-feed-meta">
+                      {item.project_name && (
+                        <span className="activity-project-tag">
+                          {item.project_name}
+                        </span>
+                      )}
+                      <time
+                        dateTime={item.created_at}
+                        title={new Date(item.created_at).toLocaleString()}
+                        className="activity-feed-time"
+                      >
+                        {relativeTime(item.created_at)}
+                      </time>
+                      {hasTaskLink ? (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <Link
+                            to={`/projects/${item.project_id}/board?task=${item.entity_id}`}
+                            className="activity-feed-link"
+                          >
+                            View task
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <Link
+                            to={`/projects/${item.project_id}/board`}
+                            className="activity-feed-link"
+                          >
+                            Open board
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </section>
 
       {createOpen && (

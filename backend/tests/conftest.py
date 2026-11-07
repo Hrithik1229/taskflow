@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from alembic.config import Config
+from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -35,15 +36,17 @@ async def postgres_is_reachable(url: str) -> bool:
         return False
 
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(parsed_url.host, parsed_url.port or 5432),
-            timeout=3,
+        engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            connect_args={"server_settings": {"timezone": "UTC"}},
         )
-    except (OSError, TimeoutError):
+        async with engine.connect() as conn:
+            await conn.execute(select(1))
+        await engine.dispose()
+        return True
+    except Exception:
         return False
-    writer.close()
-    await writer.wait_closed()
-    return True
 
 
 def run_alembic(url: str, operation: str, revision: str | None = None) -> None:

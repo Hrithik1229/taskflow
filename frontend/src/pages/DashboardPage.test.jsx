@@ -26,6 +26,7 @@ vi.mock('../features/projects/api', () => ({
 vi.mock('../features/tasks/api', () => ({
   getDashboardSummary: vi.fn(),
   getDashboardBreakdown: vi.fn(),
+  getRecentActivity: vi.fn(),
   getTaskErrorMessage: vi.fn((_error, fallback) => fallback),
 }))
 
@@ -70,6 +71,10 @@ describe('DashboardPage', () => {
       metric: 'total',
       total_count: 0,
       projects: [],
+    })
+    taskApi.getRecentActivity.mockResolvedValue({
+      items: [],
+      total: 0,
     })
   })
 

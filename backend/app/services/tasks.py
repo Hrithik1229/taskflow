@@ -302,6 +302,7 @@ async def create_task(
             entity_type="task",
             entity_id=task_id,
             details={
+                "title": task.title,
                 "status": task.status.value,
                 "priority": task.priority.value,
             },
@@ -588,6 +589,20 @@ async def update_task(
             project_id=task.project_id,
             actor_id=user_id,
             type="task_assigned",
+            payload={
+                "task_id": str(task_id),
+                "title": changed.get("title", task.title),
+            },
+        )
+        session.add(notification)
+        notifications.append(notification)
+    elif task.assigned_to is not None and task.assigned_to != user_id and changed:
+        notification = Notification(
+            id=uuid4(),
+            recipient_id=task.assigned_to,
+            project_id=task.project_id,
+            actor_id=user_id,
+            type="task_updated",
             payload={
                 "task_id": str(task_id),
                 "title": changed.get("title", task.title),
@@ -892,6 +907,7 @@ async def move_task(
                 entity_type="task",
                 entity_id=task_id,
                 details={
+                    "title": task.title,
                     "from_status": source_status.value,
                     "to_status": request.status.value,
                     "position": insertion_index,

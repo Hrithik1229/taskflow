@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         return self
 
     @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() == "production"
+
+    @property
     def normalized_database_url(self) -> str:
         return self._normalize_postgres_url(self.DATABASE_URL)
 

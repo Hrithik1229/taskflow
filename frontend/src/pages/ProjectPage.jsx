@@ -181,6 +181,14 @@ export default function ProjectPage() {
         >
           Members
         </NavLink>
+        <NavLink
+          to={`/projects/${project.id}/activity`}
+          className={({ isActive }) =>
+            `project-tab${isActive ? ' project-tab--active' : ''}`
+          }
+        >
+          Activity
+        </NavLink>
       </nav>
 
       {isNestedPage ? (
@@ -188,13 +196,27 @@ export default function ProjectPage() {
       ) : (
         <section className="project-overview">
           <h2>Project overview</h2>
-          <p>Manage your collaborators from the Members section.</p>
-          <NavLink
-            className="secondary-button project-members-link"
-            to={`/projects/${project.id}/members`}
-          >
-            View members
-          </NavLink>
+          <p>Collaborate with your team, manage tasks on the board, and track project activity.</p>
+          <div className="project-overview-actions">
+            <NavLink
+              className="primary-button"
+              to={`/projects/${project.id}/board`}
+            >
+              Open Kanban board
+            </NavLink>
+            <NavLink
+              className="secondary-button"
+              to={`/projects/${project.id}/members`}
+            >
+              View members
+            </NavLink>
+            <NavLink
+              className="secondary-button"
+              to={`/projects/${project.id}/activity`}
+            >
+              View activity feed
+            </NavLink>
+          </div>
         </section>
       )}
 
