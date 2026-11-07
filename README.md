@@ -11,6 +11,18 @@
 
 **TaskFlow** is a modern, real-time collaborative task management platform engineered for teams. It combines an asynchronous Python/FastAPI backend, an interactive React Kanban board, and PostgreSQL persistence with live Socket.IO synchronisation.
 
+## Current Status
+
+TaskFlow is currently in an active, working MVP state. The repository contains a complete local-development stack with a validated backend, a React frontend, PostgreSQL persistence, realtime collaboration, and CI automation for linting and test coverage.
+
+The project currently covers the core team workflow end-to-end:
+- **Backend**: FastAPI, SQLAlchemy async models, Alembic migrations, JWT auth, RBAC checks, rate limiting, and project/task APIs.
+- **Frontend**: React + Vite Kanban board, project navigation, task management, filtering, and realtime updates.
+- **Realtime**: project-scoped Socket.IO rooms, live sync, and client-side echo suppression.
+- **Quality gates**: GitHub Actions runs backend Ruff + pytest and frontend ESLint + Vitest + production build checks.
+
+This repo is intended for local development, portfolio/demo use, and further iteration. It does not currently include a production deployment setup or hosted service configuration.
+
 The guiding architectural principle is **Trustworthy Collaboration**:
 - **PostgreSQL is the single source of truth.** Realtime is a delivery mechanism, not the source of truth.
 - Every state change validates caller permissions against live database membership and commits to PostgreSQL in an atomic transaction before any event is broadcasted.
@@ -329,6 +341,6 @@ For complete database documentation including constraints, foreign keys, cascade
 
 ---
 
-## License
+## Licensing
 
-This project is open-source under the [MIT License](LICENSE) (or custom portfolio license).
+This repository does not currently include a `LICENSE` file, so there is no formal public license assigned yet. Treat the code as a private portfolio/demo project unless a license is added later.
