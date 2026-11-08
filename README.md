@@ -172,7 +172,7 @@ Real-Time Collaborative Task Manager/
 
 ### Prerequisites
 - **Python 3.12+**
-- **Node.js 20+** and **npm**
+- **Node.js 22+** and **npm**
 - **Docker Compose** (recommended for local PostgreSQL) or a local PostgreSQL 15+ installation
 
 ---
