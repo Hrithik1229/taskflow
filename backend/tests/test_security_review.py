@@ -1,5 +1,7 @@
+import json
 import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import jwt
@@ -7,8 +9,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings, settings
-from app.main import fastapi_app
+from app.main import api_docs_urls, fastapi_app, security_headers
 from app.security.jwt import AccessTokenError, create_access_token, decode_access_token
+from app.sockets.server import sio
 
 
 def test_jwt_rejects_none_algorithm() -> None:
@@ -85,6 +88,63 @@ async def test_security_headers_present_on_responses() -> None:
     assert "geolocation=()" in headers.get("Permissions-Policy", "")
 
 
+def test_production_security_headers_include_csp_and_hsts() -> None:
+    headers = security_headers(is_production=True)
+
+    assert headers["Content-Security-Policy"] == (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    )
+    assert headers["Strict-Transport-Security"] == "max-age=31536000"
+
+
+def test_vercel_config_sets_frontend_security_headers() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "frontend" / "vercel.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    headers = {
+        header["key"]: header["value"]
+        for item in config["headers"]
+        for header in item["headers"]
+    }
+
+    assert "default-src 'self'" in headers["Content-Security-Policy"]
+    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    assert headers["Strict-Transport-Security"] == "max-age=31536000"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_socket_payload_limit_matches_http_request_limit() -> None:
+    assert sio.eio.max_http_buffer_size == settings.MAX_REQUEST_BODY_BYTES
+
+
+@pytest.mark.asyncio
+async def test_request_body_limit_rejects_large_fixed_and_chunked_bodies() -> None:
+    body = b"x" * (settings.MAX_REQUEST_BODY_BYTES + 1)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=fastapi_app),
+        base_url="http://test",
+    ) as client:
+        fixed_length = await client.post(
+            "/api/auth/login",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+        async def chunks():
+            yield body[: settings.MAX_REQUEST_BODY_BYTES // 2]
+            yield body[settings.MAX_REQUEST_BODY_BYTES // 2 :]
+
+        chunked = await client.post(
+            "/api/auth/login",
+            content=chunks(),
+            headers={"content-type": "application/json"},
+        )
+
+    for response in (fixed_length, chunked):
+        assert response.status_code == 413
+        assert response.json()["code"] == "request_body_too_large"
+
+
 @pytest.mark.asyncio
 async def test_cors_allowed_and_disallowed_origins() -> None:
     """Security test: CORS headers for allowed origins, omitted for disallowed."""
@@ -123,6 +183,16 @@ async def test_cors_allowed_and_disallowed_origins() -> None:
             preflight.headers.get("access-control-allow-origin")
             == "http://localhost:5173"
         )
+        denied_preflight = await client.options(
+            "/api/auth/login",
+            headers={
+                "Origin": "http://evil-attacker.com",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert denied_preflight.status_code == 400
+        assert denied_preflight.headers.get("access-control-allow-origin") is None
 
 
 @pytest.mark.asyncio
@@ -167,11 +237,21 @@ async def test_error_responses_shape_and_no_traceback_leakage() -> None:
 
 
 def test_production_mode_disables_docs() -> None:
-    """Security test: In production, docs exposure is disabled."""
+    """Production configuration disables Swagger, ReDoc, and OpenAPI routes."""
     prod_settings = Settings(
         APP_ENV="production", APP_SECRET_KEY="sec1", JWT_SECRET_KEY="sec2"
     )
     assert prod_settings.is_production is True
+    assert api_docs_urls(prod_settings.is_production) == {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+    assert api_docs_urls(False) == {
+        "docs_url": "/docs",
+        "redoc_url": "/redoc",
+        "openapi_url": "/openapi.json",
+    }
 
 
 def test_auth_logging_does_not_leak_passwords(

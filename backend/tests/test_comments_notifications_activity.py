@@ -11,6 +11,7 @@ from app.main import fastapi_app
 from app.models import Notification, ProjectMember, ProjectRole, User
 from app.schemas.comment import CommentCreate
 from app.schemas.task import TaskCreate
+from app.security.jwt import create_access_token
 from app.services.activity import list_project_activity, list_recent_activity
 from app.services.comments import create_comment, list_comments
 from app.services.notifications import (
@@ -226,3 +227,68 @@ async def test_activity_feed_and_dashboard_recent_scoping(
     for act in recent.items:
         assert act.project_id == p1.id
         assert act.project_id != p2.id
+
+
+@pytest.mark.asyncio
+async def test_nonmember_cannot_access_another_projects_resources_over_http(
+    session: AsyncSession,
+    collab_client: AsyncClient,
+) -> None:
+    nonmember = await make_user(session, "idor-nonmember")
+    owner = await make_user(session, "idor-owner")
+    project = await create_project_with_owner(
+        session,
+        owner_id=owner.id,
+        name="Private project",
+    )
+    task, _ = await create_task(
+        session,
+        project_id=project.id,
+        actor_id=owner.id,
+        request=TaskCreate(title="Private task"),
+    )
+    notification = Notification(
+        recipient_id=owner.id,
+        project_id=project.id,
+        actor_id=owner.id,
+        type="task_updated",
+        payload={"task_id": str(task.id), "title": task.title},
+    )
+    session.add(notification)
+    await session.commit()
+    headers = {
+        "Authorization": f"Bearer {create_access_token(nonmember.id)}",
+    }
+
+    responses = [
+        await collab_client.get(f"/api/tasks/{task.id}", headers=headers),
+        await collab_client.patch(
+            f"/api/tasks/{task.id}",
+            json={"title": "Changed", "expected_version": 1},
+            headers=headers,
+        ),
+        await collab_client.delete(f"/api/tasks/{task.id}", headers=headers),
+        await collab_client.get(f"/api/tasks/{task.id}/comments", headers=headers),
+        await collab_client.post(
+            f"/api/tasks/{task.id}/comments",
+            json={"content": "Unauthorized"},
+            headers=headers,
+        ),
+        await collab_client.get(
+            f"/api/projects/{project.id}/activity",
+            headers=headers,
+        ),
+        await collab_client.patch(
+            f"/api/notifications/{notification.id}/read",
+            headers=headers,
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [404] * len(responses)
+    assert all(response.json()["code"] == "http_404" for response in responses)
+    isolated_notifications = await collab_client.get(
+        "/api/notifications",
+        headers=headers,
+    )
+    assert isolated_notifications.status_code == 200
+    assert isolated_notifications.json()["items"] == []

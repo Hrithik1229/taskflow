@@ -3,7 +3,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
-[![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Socket.IO](https://img.shields.io/badge/Socket.IO-4+-010101?style=flat-square&logo=socketdotio&logoColor=white)](https://socket.io)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0_Async-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
@@ -13,15 +13,17 @@
 
 ## Current Status
 
-TaskFlow is currently in an active, working MVP state. The repository contains a complete local-development stack with a validated backend, a React frontend, PostgreSQL persistence, realtime collaboration, and CI automation for linting and test coverage.
+TaskFlow is a working MVP for local development and demonstration. The repository includes a FastAPI backend, React frontend, PostgreSQL persistence, project-scoped realtime collaboration, and automated backend/frontend test suites.
 
 The project currently covers the core team workflow end-to-end:
 - **Backend**: FastAPI, SQLAlchemy async models, Alembic migrations, JWT auth, RBAC checks, rate limiting, and project/task APIs.
 - **Frontend**: React + Vite Kanban board, project navigation, task management, filtering, and realtime updates.
 - **Realtime**: project-scoped Socket.IO rooms, live sync, and client-side echo suppression.
-- **Quality gates**: GitHub Actions runs backend Ruff + pytest and frontend ESLint + Vitest + production build checks.
+- **Hardening**: PostgreSQL-shared authentication rate limits, a 1 MiB HTTP/Socket.IO payload cap, and security headers for the API and Vercel frontend hosting.
+- **Validation**: The latest local run passed 268 backend tests (91% statement coverage), 86 frontend tests (69.76% statement coverage), lint/format checks, and the frontend production build. Concurrency/realtime tests passed 10 repeated runs; dependency audits reported no known vulnerabilities.
+- **CI**: A GitHub Actions workflow is configured for backend Ruff + pytest and frontend ESLint + Vitest + production build checks. It has not yet been run on GitHub.
 
-This repo is intended for local development, portfolio/demo use, and further iteration. It does not currently include a production deployment setup or hosted service configuration.
+This repository is intended for local development, portfolio/demo use, and further iteration; it does not include a hosted production deployment. Before deploying, narrow `frontend/vercel.json`'s CSP `connect-src` to the final API hostname. Browser-based multi-user realtime and keyboard-accessibility checks remain manual; see the [manual QA procedure](docs/testing.md).
 
 The guiding architectural principle is **Trustworthy Collaboration**:
 - **PostgreSQL is the single source of truth.** Realtime is a delivery mechanism, not the source of truth.
@@ -69,7 +71,8 @@ The guiding architectural principle is **Trustworthy Collaboration**:
 ### 🛡️ Authentication & Role-Based Access Control (RBAC)
 - **Argon2id Password Hashing**: State-of-the-art password security with `pwdlib`.
 - **JWT Authentication**: Short-lived access tokens with automatic 401 recovery and memory/session storage.
-- **Rate Limiting**: Sliding-window limiter on `/api/auth/login` and `/api/auth/register` (10 req/min by IP + email).
+- **Rate Limiting**: PostgreSQL-backed sliding-window limiter on `/api/auth/login` and `/api/auth/register` (10 req/min by IP + email, shared across application workers).
+- **Enumeration-resistant registration**: New and existing email addresses receive the same generic registration confirmation; users sign in separately.
 - **Role Hierarchy**: Project permissions scoped to `owner`, `admin`, and `member`.
 
 ---
@@ -195,7 +198,7 @@ Using Docker Compose:
 ```bash
 docker compose up -d db
 ```
-This spins up PostgreSQL on port `5432` with development and test databases (`taskflow_dev` and `taskflow_test`).
+This maps PostgreSQL to port `5433` on your host (container port `5432`) with development and test databases (`taskflow_dev` and `taskflow_test`). The alternate host port avoids conflicts with a locally installed PostgreSQL service.
 
 *(Alternatively, ensure your local PostgreSQL service is running and update `DATABASE_URL` in `backend/.env` accordingly).*
 
@@ -266,8 +269,8 @@ python -m ruff check .
 # Run Ruff formatting check
 python -m ruff format --check .
 
-# Run pytest test suite (requires PostgreSQL running for integration tests)
-python -m pytest
+# Run pytest with coverage (requires PostgreSQL running for integration tests)
+python -m pytest -q --cov=app --cov-report=term-missing
 ```
 
 ### Frontend Checks
@@ -276,19 +279,26 @@ From the `frontend` directory:
 # Run ESLint
 npm run lint
 
-# Run Vitest unit & component test suite
-npm run test -- --run
+# Run Vitest unit & component test suite with coverage
+npm run test -- --run --coverage
 
 # Run production bundle build
 npm run build
 ```
+
+Latest local validation: backend 268 tests passed with 91% statement coverage;
+frontend 86 tests passed with 69.76% statement coverage, and the production
+build succeeded. The concurrency/realtime tests passed 10 repeated runs, and
+the full npm audit reports zero vulnerabilities. See the
+[test traceability and manual QA procedure](docs/testing.md) and
+[security review](docs/security-review.md) for details.
 
 ---
 
 ## API Overview
 
 ### Authentication (`/api/auth`)
-- `POST /api/auth/register` — Register a new account (`UserRead`).
+- `POST /api/auth/register` — Submit a registration request (`202`, generic response); sign in separately to continue.
 - `POST /api/auth/login` — Sign in and receive a JWT access token (`TokenResponse`).
 - `GET /api/auth/me` — Retrieve the authenticated profile (`UserRead`).
 

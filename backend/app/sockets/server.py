@@ -12,4 +12,5 @@ logging.getLogger("engineio").setLevel(logging.WARNING)
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins=settings.cors_origins_list,
+    max_http_buffer_size=settings.MAX_REQUEST_BODY_BYTES,
 )

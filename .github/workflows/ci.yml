@@ -61,16 +61,21 @@ jobs:
       - name: Run Alembic migrations
         working-directory: backend
         env:
+          APP_ENV: test
+          APP_SECRET_KEY: ci-only-app-secret-for-tests-not-a-production-secret
+          JWT_SECRET_KEY: ci-only-jwt-secret-for-tests-not-a-production-secret
           DATABASE_URL: postgresql+asyncpg://taskflow_dev:taskflow_dev_only@localhost:5432/taskflow_test
-          SECRET_KEY: ci-test-secret-key-32-characters-minimum-for-testing
         run: |
           python -m alembic upgrade head
 
       - name: Run Pytest with Coverage
         working-directory: backend
         env:
+          APP_ENV: test
+          APP_SECRET_KEY: ci-only-app-secret-for-tests-not-a-production-secret
+          JWT_SECRET_KEY: ci-only-jwt-secret-for-tests-not-a-production-secret
           DATABASE_URL: postgresql+asyncpg://taskflow_dev:taskflow_dev_only@localhost:5432/taskflow_test
-          SECRET_KEY: ci-test-secret-key-32-characters-minimum-for-testing
+          TEST_DATABASE_URL: postgresql+asyncpg://taskflow_dev:taskflow_dev_only@localhost:5432/taskflow_test
         run: |
           pytest -v --cov=app --cov-report=term-missing --cov-report=xml
 
@@ -104,4 +109,3 @@ jobs:
       - name: Build production bundle
         working-directory: frontend
         run: npm run build
-

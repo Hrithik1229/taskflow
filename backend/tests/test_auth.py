@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -6,20 +7,15 @@ import jwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.rate_limit import rate_limiter
 from app.config import settings
 from app.database import get_session
 from app.main import fastapi_app
 from app.models import User
 from app.security.jwt import create_access_token
 from app.security.passwords import verify_password
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter() -> None:
-    rate_limiter.reset()
 
 
 @pytest.fixture
@@ -58,20 +54,21 @@ async def auth_client(session: AsyncSession, override_database):
 
 
 @pytest.mark.asyncio
-async def test_register_returns_public_user_and_hashes_password(
+async def test_register_returns_generic_response_and_hashes_password(
     auth_client: AsyncClient,
     session: AsyncSession,
     payload: dict[str, str],
 ) -> None:
     response = await auth_client.post("/api/auth/register", json=payload)
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     result = response.json()
-    assert result["username"] == payload["username"]
-    assert result["email"] == payload["email"]
+    assert result == {
+        "message": "If the account can be created, the request has been accepted."
+    }
     assert "password_hash" not in response.text
 
-    user = await session.get(User, result["id"])
+    user = await session.scalar(select(User).where(User.email == payload["email"]))
     assert user is not None
     assert user.password_hash.startswith("$argon2id$")
     assert user.password_hash != payload["password"]
@@ -81,17 +78,22 @@ async def test_register_returns_public_user_and_hashes_password(
 @pytest.mark.asyncio
 async def test_register_normalizes_email_and_rejects_duplicate(
     auth_client: AsyncClient,
+    session: AsyncSession,
     payload: dict[str, str],
 ) -> None:
-    assert (
-        await auth_client.post("/api/auth/register", json=payload)
-    ).status_code == 201
+    first = await auth_client.post("/api/auth/register", json=payload)
     duplicate = {**payload, "email": "  AUTH@Example.COM "}
 
     response = await auth_client.post("/api/auth/register", json=duplicate)
 
-    assert response.status_code == 409
-    assert response.json()["code"] == "http_409"
+    assert first.status_code == response.status_code == 202
+    assert first.json() == response.json()
+    assert (
+        await session.scalar(
+            select(func.count(User.id)).where(User.email == "auth@example.com")
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -137,6 +139,25 @@ async def test_login_returns_access_token_and_me_returns_public_profile(
     assert profile.status_code == 200
     assert profile.json()["email"] == payload["email"]
     assert "password_hash" not in profile.text
+
+
+@pytest.mark.asyncio
+async def test_login_does_not_log_password_or_access_token(
+    auth_client: AsyncClient,
+    payload: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await auth_client.post("/api/auth/register", json=payload)
+
+    with caplog.at_level(logging.DEBUG):
+        response = await auth_client.post(
+            "/api/auth/login",
+            json={"email": payload["email"], "password": payload["password"]},
+        )
+
+    assert response.status_code == 200
+    assert payload["password"] not in caplog.text
+    assert response.json()["access_token"] not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -210,10 +231,10 @@ async def test_me_rejects_token_for_deleted_user(
     session: AsyncSession,
     payload: dict[str, str],
 ) -> None:
-    response = await auth_client.post("/api/auth/register", json=payload)
-    token = create_access_token(response.json()["id"])
-    user = await session.get(User, response.json()["id"])
+    await auth_client.post("/api/auth/register", json=payload)
+    user = await session.scalar(select(User).where(User.email == payload["email"]))
     assert user is not None
+    token = create_access_token(user.id)
     await session.delete(user)
     await session.commit()
 

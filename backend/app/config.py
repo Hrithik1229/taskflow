@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     AUTH_RATE_LIMIT_ENABLED: bool = True
     AUTH_RATE_LIMIT_MAX_REQUESTS: int = Field(default=10, ge=1)
     AUTH_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, ge=1)
+    MAX_REQUEST_BODY_BYTES: int = Field(default=1_048_576, ge=1_024)
     DATABASE_URL: str = ""
     TEST_DATABASE_URL: str = ""
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"

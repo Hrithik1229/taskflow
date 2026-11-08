@@ -159,6 +159,7 @@ async def connect_client(url: str, user_id, event_queues=None):
 @pytest.mark.asyncio
 async def test_socket_auth_rejects_bad_tokens_and_checks_expiry_on_join(
     realtime_environment,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     url, session_factory = realtime_environment
     ids = await create_identity_fixture(session_factory)
@@ -193,6 +194,16 @@ async def test_socket_auth_rejects_bad_tokens_and_checks_expiry_on_join(
             algorithm=settings.JWT_ALGORITHM,
         )
         client = socketio.AsyncClient(reconnection=False)
+        with caplog.at_level("DEBUG"):
+            token = create_access_token(ids["owner"])
+            await client.connect(
+                url,
+                auth={"token": token},
+                transports=["websocket"],
+            )
+        assert token not in caplog.text
+        await client.disconnect()
+        client = socketio.AsyncClient(reconnection=False)
         await client.connect(
             url,
             auth={"token": expiring_token},
@@ -226,6 +237,7 @@ async def test_realtime_rooms_publish_committed_changes_and_revoke_removed_membe
     notifications = asyncio.Queue()
     owner_notifications = asyncio.Queue()
     outsider_notifications = asyncio.Queue()
+    owner_task_events = asyncio.Queue()
     member_client = await connect_client(
         url,
         ids["member"],
@@ -251,7 +263,10 @@ async def test_realtime_rooms_publish_committed_changes_and_revoke_removed_membe
     owner_client = await connect_client(
         url,
         ids["owner"],
-        {"notification_created": owner_notifications},
+        {
+            "task_created": owner_task_events,
+            "notification_created": owner_notifications,
+        },
     )
 
     try:
@@ -261,6 +276,12 @@ async def test_realtime_rooms_publish_committed_changes_and_revoke_removed_membe
             timeout=2,
         )
         assert member_ack == {"ok": True, "project_id": str(ids["project"])}
+        owner_ack = await owner_client.call(
+            "join_project",
+            {"project_id": str(ids["project"])},
+            timeout=2,
+        )
+        assert owner_ack == {"ok": True, "project_id": str(ids["project"])}
         denied_ack = await outsider_client.call(
             "join_project",
             {"project_id": str(ids["project"])},
@@ -341,6 +362,9 @@ async def test_realtime_rooms_publish_committed_changes_and_revoke_removed_membe
                 select(Task.id).where(Task.id == response.json()["id"])
             )
         assert committed_task_id is not None
+        owner_task_event = await asyncio.wait_for(owner_task_events.get(), timeout=3)
+        assert owner_task_event["event_id"] == task_event["event_id"]
+        assert owner_task_event["task"]["id"] == task_event["task"]["id"]
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(outsider_events.get(), timeout=0.15)
 
@@ -388,6 +412,11 @@ async def test_realtime_rooms_publish_committed_changes_and_revoke_removed_membe
         assert moved_event["task"]["reviewer"]["id"] == str(ids["member"])
         assert moved_event["task"]["review_requested_by"]["id"] == str(ids["owner"])
         assert moved_event["task"]["status_changed_by"]["id"] == str(ids["owner"])
+        task_update_notification = await asyncio.wait_for(
+            notifications.get(),
+            timeout=3,
+        )
+        assert task_update_notification["notification"]["type"] == "task_updated"
         review_notification = await asyncio.wait_for(notifications.get(), timeout=3)
         assert review_notification["notification"]["type"] == "review_requested"
 

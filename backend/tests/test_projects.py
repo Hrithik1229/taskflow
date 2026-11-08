@@ -179,13 +179,19 @@ async def test_member_services_record_activity_and_return_outbox_events(
         actor_id=owner.id,
         request=MemberAdd(email=invited.email),
     )
-    assert len(added_events) == 1
-    assert added_events[0].event == "member_changed"
-    assert added_events[0].project_id == project.id
-    assert added_events[0].payload["action"] == "member.added"
-    assert added_events[0].payload["user_id"] == str(invited.id)
-    assert added_events[0].payload["role"] == ProjectRole.MEMBER.value
-    assert added_events[0].payload["member"]["username"] == invited.username
+    member_event = next(
+        event for event in added_events if event.event == "member_changed"
+    )
+    assert member_event.project_id == project.id
+    assert member_event.payload["action"] == "member.added"
+    assert member_event.payload["user_id"] == str(invited.id)
+    assert member_event.payload["role"] == ProjectRole.MEMBER.value
+    assert member_event.payload["member"]["username"] == invited.username
+    notification_event = next(
+        event for event in added_events if event.event == "notification_created"
+    )
+    assert notification_event.payload["recipient_id"] == str(invited.id)
+    assert notification_event.payload["notification"]["type"] == "member_added"
 
     _, changed_events = await change_role(
         session,
@@ -208,10 +214,16 @@ async def test_member_services_record_activity_and_return_outbox_events(
         actor_id=owner.id,
         target_user_id=invited.id,
     )
-    assert len(removed_events) == 1
-    assert removed_events[0].event == "member_changed"
-    assert removed_events[0].payload["action"] == "member.removed"
-    assert removed_events[0].payload["user_id"] == str(invited.id)
+    removed_event = next(
+        event for event in removed_events if event.event == "member_changed"
+    )
+    assert removed_event.payload["action"] == "member.removed"
+    assert removed_event.payload["user_id"] == str(invited.id)
+    removal_notification = next(
+        event for event in removed_events if event.event == "notification_created"
+    )
+    assert removal_notification.payload["recipient_id"] == str(invited.id)
+    assert removal_notification.payload["notification"]["type"] == "member_removed"
 
     activities = (
         await session.scalars(

@@ -197,11 +197,11 @@ describe('authentication pages and routes', () => {
     expect(sessionStorage.getItem('taskflow_access_token')).toBeNull()
   })
 
-  it('registers then signs in and navigates to dashboard', async () => {
+  it('shows a generic registration confirmation and asks the user to sign in', async () => {
     const user = userEvent.setup()
-    authApi.register.mockResolvedValue({ id: authenticatedUser.id })
-    authApi.login.mockResolvedValue({ access_token: 'new-token' })
-    authApi.getCurrentUser.mockResolvedValue(authenticatedUser)
+    authApi.register.mockResolvedValue({
+      message: 'If the account can be created, the request has been accepted.',
+    })
     render(<TestRoutes initialPath="/register" />)
 
     await user.type(screen.getByLabelText('Username'), 'Taylor')
@@ -210,10 +210,14 @@ describe('authentication pages and routes', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(authApi.register).toHaveBeenCalledOnce()
-    expect(authApi.login).toHaveBeenCalledOnce()
+    expect(authApi.login).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('taskflow_access_token')).toBeNull()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'If the account can be created, the request has been accepted.',
+    )
     expect(
-      await screen.findByRole('heading', { name: 'Welcome, Taylor' }),
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'Continue to sign in' }),
+    ).toHaveAttribute('href', '/login')
   })
 
   it('logs out and clears the stored token', async () => {

@@ -31,7 +31,7 @@ async def ensure_user(session: AsyncSession, details: dict[str, str]) -> User:
     user = await session.scalar(select(User).where(User.email == email))
     if user is not None:
         return user
-    return await register_user(
+    await register_user(
         session,
         RegisterRequest(
             username=details["username"],
@@ -39,6 +39,10 @@ async def ensure_user(session: AsyncSession, details: dict[str, str]) -> User:
             password=details["password"],
         ),
     )
+    user = await session.scalar(select(User).where(User.email == email))
+    if user is None:
+        raise RuntimeError("The development user could not be created.")
+    return user
 
 
 async def seed() -> None:

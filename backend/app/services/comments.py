@@ -60,6 +60,7 @@ async def create_comment(
         task_id=task_id,
         user_id=actor_id,
         content=request.content,
+        created_at=func.clock_timestamp(),
     )
     session.add(comment)
 

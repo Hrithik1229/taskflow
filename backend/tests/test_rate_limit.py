@@ -1,45 +1,63 @@
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common import rate_limit
-from app.common.rate_limit import SlidingWindowRateLimiter
+from app.common.rate_limit import PostgreSQLSlidingWindowRateLimiter
 from app.config import settings
+from app.models import AuthRateLimitAttempt
 
 
-def test_blocked_new_emails_do_not_allocate_buckets(
+@pytest.mark.asyncio
+async def test_auth_rate_limits_are_shared_between_instances(
+    session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    limiter = SlidingWindowRateLimiter()
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_ENABLED", True)
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_MAX_REQUESTS", 1)
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)
-    monkeypatch.setattr(rate_limit, "monotonic", lambda: 10.0)
+    first_instance = PostgreSQLSlidingWindowRateLimiter()
+    second_instance = PostgreSQLSlidingWindowRateLimiter()
 
-    limiter.check("login", "203.0.113.1", "first@example.com")
-    for suffix in range(50):
-        with pytest.raises(HTTPException) as error:
-            limiter.check("login", "203.0.113.1", f"new-{suffix}@example.com")
-        assert error.value.status_code == 429
+    await first_instance.check(
+        session,
+        "login",
+        "203.0.113.1",
+        "shared@example.com",
+    )
+    with pytest.raises(HTTPException) as error:
+        await second_instance.check(
+            session,
+            "login",
+            "203.0.113.1",
+            "shared@example.com",
+        )
 
-    assert set(limiter._requests) == {
-        "login:ip:203.0.113.1",
-        "login:email:first@example.com",
-    }
+    assert error.value.status_code == 429
+    records = list(
+        (
+            await session.scalars(
+                select(AuthRateLimitAttempt).order_by(AuthRateLimitAttempt.key_hash)
+            )
+        ).all()
+    )
+    assert len(records) == 2
+    assert all(len(record.key_hash) == 64 for record in records)
 
 
-def test_periodic_cleanup_removes_expired_email_keys(
+@pytest.mark.asyncio
+async def test_auth_rate_limits_are_scoped_by_action(
+    session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    limiter = SlidingWindowRateLimiter()
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_ENABLED", True)
-    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_MAX_REQUESTS", 100)
+    monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_MAX_REQUESTS", 1)
     monkeypatch.setattr(settings, "AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)
-    monkeypatch.setattr(rate_limit, "monotonic", lambda: 10.0)
-    limiter.check("login", "203.0.113.1", "old@example.com")
+    limiter = PostgreSQLSlidingWindowRateLimiter()
 
-    current_time = [71.0]
-    monkeypatch.setattr(rate_limit, "monotonic", lambda: current_time[0])
-    for index in range(limiter.cleanup_interval - 1):
-        limiter.check("login", f"203.0.113.{index + 2}", f"user-{index}@example.com")
+    await limiter.check(session, "login", "203.0.113.2", "same@example.com")
+    await limiter.check(session, "register", "203.0.113.2", "same@example.com")
+    with pytest.raises(HTTPException) as error:
+        await limiter.check(session, "login", "203.0.113.2", "same@example.com")
 
-    assert "login:email:old@example.com" not in limiter._requests
+    assert error.value.status_code == 429

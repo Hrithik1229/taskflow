@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -16,33 +16,22 @@ DUMMY_PASSWORD_HASH = (
 INVALID_CREDENTIALS = "Invalid email or password."
 
 
-async def register_user(session: AsyncSession, request: RegisterRequest) -> User:
+async def register_user(session: AsyncSession, request: RegisterRequest) -> bool:
     normalized_email = str(request.email).strip().lower()
-    existing = await session.scalar(
-        select(User.id).where(User.email == normalized_email)
-    )
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists.",
+    password_hash = hash_password(request.password)
+    statement = (
+        insert(User)
+        .values(
+            username=request.username,
+            email=normalized_email,
+            password_hash=password_hash,
         )
-
-    user = User(
-        username=request.username,
-        email=normalized_email,
-        password_hash=hash_password(request.password),
+        .on_conflict_do_nothing(index_elements=[User.email])
+        .returning(User.id)
     )
-    session.add(user)
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists.",
-        ) from None
-    await session.refresh(user)
-    return user
+    created = (await session.execute(statement)).scalar_one_or_none() is not None
+    await session.commit()
+    return created
 
 
 async def authenticate_user(

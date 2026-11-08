@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.rate_limit import enforce_auth_rate_limit
 from app.database import get_session
 from app.models import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserRead
+from app.schemas.auth import (
+    LoginRequest,
+    RegisterRequest,
+    RegisterResponse,
+    TokenResponse,
+    UserRead,
+)
 from app.security.dependencies import get_current_user
 from app.services.auth import authenticate_user, register_user, to_user_read
 
@@ -16,17 +22,19 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 @router.post(
     "/register",
-    response_model=UserRead,
-    status_code=status.HTTP_201_CREATED,
+    response_model=RegisterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def register(
     payload: RegisterRequest,
     request: Request,
     session: SessionDependency,
-) -> UserRead:
-    enforce_auth_rate_limit(request, "register", str(payload.email))
-    user = await register_user(session, payload)
-    return to_user_read(user)
+) -> RegisterResponse:
+    await enforce_auth_rate_limit(session, request, "register", str(payload.email))
+    await register_user(session, payload)
+    return RegisterResponse(
+        message="If the account can be created, the request has been accepted."
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -35,7 +43,7 @@ async def login(
     request: Request,
     session: SessionDependency,
 ) -> TokenResponse:
-    enforce_auth_rate_limit(request, "login", str(payload.email))
+    await enforce_auth_rate_limit(session, request, "login", str(payload.email))
     _, token = await authenticate_user(session, payload)
     return token
 

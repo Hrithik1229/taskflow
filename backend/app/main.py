@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.common.errors import TaskVersionConflict
+from app.common.request_body_limit import RequestBodySizeLimitMiddleware
 from app.config import settings
 from app.routers.activity import router as activity_router
 from app.routers.auth import router as auth_router
@@ -22,15 +23,39 @@ from app.sockets.server import sio
 
 logger = logging.getLogger(__name__)
 
-docs_url = None if settings.is_production else "/docs"
-redoc_url = None if settings.is_production else "/redoc"
-openapi_url = None if settings.is_production else "/openapi.json"
+
+def api_docs_urls(is_production: bool) -> dict[str, str | None]:
+    if is_production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {
+        "docs_url": "/docs",
+        "redoc_url": "/redoc",
+        "openapi_url": "/openapi.json",
+    }
+
+
+def security_headers(is_production: bool) -> dict[str, str]:
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    }
+    if is_production:
+        headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+        )
+        headers["Strict-Transport-Security"] = "max-age=31536000"
+    return headers
+
 
 fastapi_app = FastAPI(
     title="TaskFlow API",
-    docs_url=docs_url,
-    redoc_url=redoc_url,
-    openapi_url=openapi_url,
+    **api_docs_urls(settings.is_production),
+)
+fastapi_app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    max_body_bytes=settings.MAX_REQUEST_BODY_BYTES,
 )
 fastapi_app.add_middleware(
     CORSMiddleware,
@@ -47,10 +72,8 @@ async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)
     except Exception as exc:
         response = await unhandled_exception_handler(request, exc)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    for name, value in security_headers(settings.is_production).items():
+        response.headers[name] = value
     return response
 
 

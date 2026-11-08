@@ -50,6 +50,10 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class RegisterResponse(BaseModel):
+    message: str
+
+
 class UserRead(BaseModel):
     id: UUID
     username: str

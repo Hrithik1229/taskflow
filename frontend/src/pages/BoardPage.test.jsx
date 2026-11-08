@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
@@ -116,6 +122,54 @@ describe('BoardPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows loading and retryable error states for an empty board', async () => {
+    const reload = vi.fn().mockResolvedValue(undefined)
+    useTasks.mockReturnValue({
+      tasks: [],
+      isLoading: true,
+      error: '',
+      reload,
+      move: vi.fn(),
+    })
+    const { rerender } = renderBoard()
+
+    expect(
+      screen.getByRole('status', { name: 'Loading board' }),
+    ).toBeInTheDocument()
+
+    useTasks.mockReturnValue({
+      tasks: [],
+      isLoading: false,
+      error: 'Tasks could not be loaded.',
+      reload,
+      move: vi.fn(),
+    })
+    rerender(
+      <MemoryRouter initialEntries={['/projects/project-id/board']}>
+        <AuthContext.Provider
+          value={{ user: { id: 'owner-id', username: 'Owner' } }}
+        >
+          <Routes>
+            <Route
+              path="/projects/:projectId"
+              element={<Outlet context={{ project }} />}
+            >
+              <Route path="board" element={<BoardPage />} />
+            </Route>
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Tasks could not be loaded.',
+    )
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Try again' }))
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
   it('creates a task using the real task API', async () => {
     const user = userEvent.setup()
     renderBoard()
@@ -133,6 +187,46 @@ describe('BoardPage', () => {
           priority: 'medium',
         }),
       )
+    })
+  })
+
+  it('edits a task and sends its expected version', async () => {
+    const user = userEvent.setup()
+    taskApi.updateTask.mockResolvedValue({
+      ...task,
+      title: 'Updated launch checklist',
+      version: 2,
+    })
+    renderBoard()
+
+    await user.click(await screen.findByRole('button', { name: task.title }))
+    await user.clear(screen.getByLabelText('Title'))
+    await user.type(screen.getByLabelText('Title'), 'Updated launch checklist')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      expect(taskApi.updateTask).toHaveBeenCalledWith(
+        task.id,
+        expect.objectContaining({
+          title: 'Updated launch checklist',
+          expected_version: task.version,
+        }),
+      )
+    })
+  })
+
+  it('confirms task deletion before calling the API', async () => {
+    const user = userEvent.setup()
+    taskApi.deleteTask.mockResolvedValue({})
+    renderBoard()
+
+    await user.click(await screen.findByRole('button', { name: task.title }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(taskApi.deleteTask).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Delete task' }))
+
+    await waitFor(() => {
+      expect(taskApi.deleteTask).toHaveBeenCalledWith(task.id)
     })
   })
 
@@ -187,9 +281,7 @@ describe('BoardPage', () => {
     expect(
       await screen.findByText('Reviewer: Reviewer · from Submitter'),
     ).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('button', { name: reviewTask.title }),
-    )
+    await user.click(screen.getByRole('button', { name: reviewTask.title }))
     expect(screen.getByText('Status history')).toBeInTheDocument()
     const reviewerSelect = screen.getByLabelText('Reviewer')
     expect(reviewerSelect).toBeInTheDocument()
@@ -234,9 +326,7 @@ describe('BoardPage', () => {
     const legacyCard = screen
       .getByRole('button', { name: legacyTask.title })
       .closest('article')
-    expect(
-      within(legacyCard).queryByText(/Moved by/),
-    ).not.toBeInTheDocument()
+    expect(within(legacyCard).queryByText(/Moved by/)).not.toBeInTheDocument()
   })
 
   it('disables Review drag handles for members who are not the reviewer', async () => {
