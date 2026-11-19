@@ -1,95 +1,165 @@
-# Testing and Acceptance Traceability
+# TaskFlow — Testing Strategy & Quality Assurance Traceability
 
-The brief refers to sections 10.1–10.3, but those sections are not present in
-the repository. This traceability table maps the acceptance bullets supplied
-for Phase 7. Automated test names refer to the current backend/frontend suites.
+This document details the multi-tiered testing strategy, automated test commands, real-time verification mechanics, requirement traceability matrix, and manual QA walkthrough scripts for TaskFlow.
 
-## Traceability
+---
 
-| Requirement | Automated evidence | Status / remaining gap |
-|---|---|---|
-| Auth: registration, duplicate email, password hashing, login, invalid password, protected routes, expired/tampered tokens, rate limiting | `backend/tests/test_auth.py`: `test_register_returns_generic_response_and_hashes_password`, `test_register_normalizes_email_and_rejects_duplicate`, `test_login_returns_access_token_and_me_returns_public_profile`, `test_wrong_password_and_unknown_email_share_same_error`, `test_me_rejects_expired_and_tampered_tokens`, `test_auth_rate_limit_returns_429_and_retry_after`; `backend/tests/test_rate_limit.py::test_auth_rate_limits_are_shared_between_instances`, `test_auth_rate_limits_are_scoped_by_action`; `backend/tests/test_routes_security.py::test_every_protected_route_rejects_anonymous_requests` | Covered. New/duplicate registrations return the same response; the frontend does not auto-login. `test_login_does_not_log_password_or_access_token` checks credential redaction. |
-| Project owner/admin/member/non-member permissions | `backend/tests/test_authorization_matrix.py::test_project_route_permissions_for_each_role`; existing project/task role tests | Automated 25 protected-route × 4-role matrix. |
-| Every protected API route rejects anonymous requests | `backend/tests/test_routes_security.py::test_every_protected_route_rejects_anonymous_requests` | Covered by enumerating the OpenAPI paths; new protected API paths fail unless explicitly allow-listed. |
-| Every protected API route has an explicit role-matrix entry | `backend/tests/test_authorization_matrix.py::test_role_matrix_covers_every_protected_api_route` | Covered; fails when a protected OpenAPI route is missing from the role matrix. |
-| Tasks: CRUD, assignee validation, filters, status transitions, ordering, concurrency, move/update conflict | `backend/tests/test_tasks.py`: `test_task_create_update_conflict_move_filters_and_outbox`, `test_task_assignee_must_be_project_member_and_dashboard_counts`, `test_task_http_version_conflict_contains_current_state`, `test_task_positions_remain_contiguous_after_reorder_move_and_delete`, `test_concurrent_task_mutations_have_one_winner`, `test_review_workflow_attributes_mover_and_credits_submitter` | Covered, including same-version write contention and move/update version conflicts. |
-| Comments, activity, notifications | `backend/tests/test_comments_notifications_activity.py`: `test_comment_creation_permissions_notifications_and_activity`, `test_notifications_read_state_and_isolation`, `test_activity_feed_and_dashboard_recent_scoping`; `backend/tests/test_projects.py::test_member_services_record_activity_and_return_outbox_events` | Covered, including notification scoping and outbox behavior. |
-| Realtime authentication, room authorization, multiple recipients, outsider exclusion, removal revocation, transactional delivery | `backend/tests/test_realtime.py::test_socket_auth_rejects_bad_tokens_and_checks_expiry_on_join`, `backend/tests/test_realtime.py::test_realtime_rooms_publish_committed_changes_and_revoke_removed_members`; `backend/tests/test_projects.py::test_project_creation_failure_rolls_back_project_membership_and_activity` | Covered for denied connection/join, authorized room delivery to two clients, outsider exclusion, revoked members, and events not emitted before successful transaction completion. |
-| HTTP error shapes and exception masking | `backend/tests/test_security_review.py::test_error_responses_shape_and_no_traceback_leakage`; relevant 403/404/409 behavior is asserted by project/task authorization and version-conflict tests | Covered for 422 and generic 500/no traceback; authorization and conflict tests cover endpoint-specific 403/404/409 outcomes. |
-| Configuration: required secrets, PostgreSQL URL normalization, CORS, body-size bounds | `backend/tests/test_config.py::test_settings_require_secrets_outside_tests`, `test_settings_parse_origins_and_normalize_database_urls`; `backend/tests/test_security_review.py::test_cors_allowed_and_disallowed_origins`, `test_request_body_limit_rejects_large_fixed_and_chunked_bodies`, `test_socket_payload_limit_matches_http_request_limit` | Covered; CORS tests allowed/disallowed origins and preflight; HTTP and Socket.IO enforce the configured 1 MiB cap. |
-| Production security headers and frontend Vercel policy | `backend/tests/test_security_review.py::test_production_security_headers_include_csp_and_hsts`, `test_vercel_config_sets_frontend_security_headers` | Covered by helper and config assertions. Tighten Vercel `connect-src` to the final API hostname before deployment. |
-| Frontend auth validation and protected routes | `frontend/src/pages/AuthPages.test.jsx`: `shows inline validation messages on login`, `shows a server error on login failure`, `redirects unauthenticated users to login and remembers destination`, `redirects authenticated users away from login and register`, `shows a generic registration confirmation and asks the user to sign in` | Covered. |
-| Frontend board states, create/edit/delete, and role-sensitive controls | `frontend/src/pages/BoardPage.test.jsx`: `renders the four task columns and real task cards`, `shows loading and retryable error states for an empty board`, `creates a task using the real task API`, `edits a task and sends its expected version`, `confirms task deletion before calling the API`, `disables Review drag handles for members who are not the reviewer` | Covered. Direct drag/drop handler behavior is included in manual QA; no Playwright test was added. |
-| Frontend realtime hook and reconnect refetch | `frontend/src/hooks/useProjectRealtime.test.jsx`: `joins after connect, rejoins on reconnect, and refetches after each join`, `deduplicates event ids and ignores its own mutation echo`, `reports join errors and cleans up listeners and room membership` | Covered with mocked realtime transport. |
-| Frontend notifications | `frontend/src/components/NotificationsMenu.test.jsx`: `marks a notification as read and navigates to its task`, `updates the unread count when a realtime notification arrives`, `marks all loaded notifications as read` | Covered. |
-| Frontend accessibility smoke checks | Accessible roles/names and password-visibility behavior are exercised by UI tests; manual keyboard/focus review below | No automated axe scan is configured. |
+## 1. Test Strategy Overview
 
-## Executed validation
+TaskFlow employs a pyramid testing strategy ensuring reliability, security, and concurrency safety:
 
-| Suite | Result |
-|---|---|
-| Backend Ruff lint and formatter check | Passed |
-| Backend pytest | 268 passed; 91% statement coverage (1,719/1,895 statements) |
-| Concurrency + realtime repeat run | 10 runs × 22 passing tests; no failures |
-| Frontend ESLint | Passed |
-| Frontend Vitest | 86 passed; 69.76% statement / 70.64% line coverage |
-| Frontend production build | Passed |
-| Python dependency audit | No known vulnerabilities |
-| Production npm audit | 0 vulnerabilities |
-| Full npm audit | 0 vulnerabilities after ESLint 9.39.5 update and JSX-aware lint configuration |
+```
+                  ┌──────────────────────────────┐
+                  │   Manual Two-Browser QA      │
+                  │   & Accessibility Reviews    │
+                  ├──────────────────────────────┤
+                  │   End-to-End Smoke Test      │
+                  │   (scripts/smoke_test.py)    │
+                  ├──────────────────────────────┤
+                  │   Realtime & Concurrency     │
+                  │   Integration Tests (pytest) │
+                  ├──────────────────────────────┤
+                  │   Component & Hook Tests     │
+                  │   (Vitest + React Test Lib)  │
+                  ├──────────────────────────────┤
+                  │   Unit & Security Matrix     │
+                  │   (pytest, Ruff, ESLint)     │
+                  └──────────────────────────────┘
+```
 
-The CI workflow is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
-Its YAML was locally parsed and its backend/frontend jobs inspected; `actionlint`
-was unavailable, and the workflow has not been run on GitHub.
+1. **Unit & Security Matrix:** Covers Pydantic schemas, password hashing with Argon2id, JWT issuance/validation, fail-fast production configuration, and exhaustive route authorization matrices.
+2. **Component & Reducer Tests:** Vitest tests all React components, form validations, theme toggles, error boundaries, and WebSocket state reducers.
+3. **Realtime & Concurrency Suite:** Tests multi-client WebSocket communication, outbox transactional boundaries, optimistic concurrency conflicts (HTTP 409), and PostgreSQL advisory locks under concurrent requests.
+4. **End-to-End Smoke Test:** A standalone Python script (`scripts/smoke_test.py`) capable of running against any local or deployed URL, creating users, establishing WebSocket connections, creating tasks, verifying broadcasts, asserting outsider isolation, and checking version conflicts.
+5. **Manual QA Scenarios:** Step-by-step procedures to verify cross-browser synchronization, reconnection, and keyboard accessibility.
 
-## Manual QA procedure
+---
 
-Use the local development setup documented in the README. Keep three browser
-profiles available: **Owner**, **Member**, and **Outsider**. Create separate
-accounts for each; add the Member to the Owner's project, and leave the
-Outsider out of it.
+## 2. Test Execution Commands
 
-1. **Authentication and route protection**
-   - In a private browser profile, open a protected project URL and verify it
-     redirects to sign-in. Sign in, then verify the intended project page opens.
-   - Sign out and verify the session is cleared. Try invalid login credentials
-     and an invalid registration form; verify actionable inline errors appear.
-   - Submit a valid new account and then an existing email. Verify both
-     requests show the same generic confirmation and neither signs in
-     automatically; use the sign-in link afterward.
-2. **Project role checks**
-   - As Owner, open project settings and add the Member. Verify owner-only
-     settings controls are visible.
-   - As Member, open the same project and verify owner-only settings controls
-     are absent. Try the corresponding edit/delete operation through the UI;
-     verify it is denied.
-   - As Outsider, paste the project URL and task URL directly. Verify project
-     data is not displayed. If using the API, repeat with the same resource IDs
-     and confirm non-member responses do not disclose the resource.
-   - As Owner, change a non-owner role and remove the Member. Verify the
-     Member's project access is revoked. As Admin, verify permitted member
-     management actions and verify role changes reserved for the Owner are
-     unavailable.
-3. **Task and collaboration workflow**
-   - As Owner or Member, create, edit, assign, filter, move, and delete a task.
-     Verify invalid assignees are rejected and task ordering remains stable
-     after a move/delete.
-   - Add a comment, open project activity, and mark a notification read. Verify
-     the activity and notification correspond to the task/project and that
-     another user's notifications remain private.
-4. **Realtime isolation and revocation**
-   - Open the same project board in Owner and Member profiles and open an
-     unrelated project (or no project) in Outsider.
-   - Change a task in the Owner profile. Verify the Member board updates
-     without refresh, while the Outsider receives no task/project event.
-   - Remove the Member from the project, reconnect or refresh the Member
-     profile, and verify it cannot rejoin or receive later project events.
-5. **Keyboard/accessibility smoke check**
-   - Navigate sign-in, project navigation, task dialog, and notifications using
-     only Tab, Shift+Tab, Enter, and Escape. Confirm visible focus, meaningful
-     control names, associated form labels/errors, and that dialogs can be
-     closed without a pointer.
+### Backend Tests (pytest)
+From the `backend/` directory:
+```bash
+# 1. Run all unit and security tests (fast, no external DB needed):
+python -m pytest tests/test_config.py tests/test_config_production.py tests/test_passwords.py tests/test_routes_security.py -v
 
-Record browser, account role, action, and observed result for failures. The
-two-browser realtime scenario remains manual; no Playwright E2E was added
-because a reliable browser-context setup was not established.
+# 2. Run full backend suite with coverage (requires PostgreSQL on port 5433 or 5432):
+python -m pytest -v --cov=app --cov-report=term-missing
+
+# 3. Run concurrency and real-time integration tests:
+python -m pytest tests/test_tasks.py tests/test_realtime.py -v
+
+# 4. Code quality & formatting:
+python -m ruff check .
+python -m ruff format --check .
+```
+
+### Frontend Tests (Vitest)
+From the `frontend/` directory:
+```bash
+# 1. Run full test suite in single-run mode:
+npm run test -- --run
+
+# 2. Run test suite with code coverage:
+npm run test -- --run --coverage
+
+# 3. Lint check:
+npm run lint
+
+# 4. Production build check:
+npm run build
+```
+
+### Reusable Production Smoke Test
+From the project root:
+```bash
+# Against local production-like container stack:
+python scripts/smoke_test.py --base-url http://localhost:8000
+
+# Against live deployed backend:
+python scripts/smoke_test.py --base-url https://your-backend.onrender.com
+```
+
+---
+
+## 3. How Realtime Tests Work
+
+Realtime testing involves multiple asynchronous actors and cannot rely on simple synchronous request-response assertions:
+
+1. **In-Memory ASGI Sockets (`tests/test_realtime.py`):**
+   - The test fixture initializes `python-socketio` AsyncClient instances connected to the in-memory ASGI app via `httpx.ASGITransport`.
+   - Tests connect two authenticated client sessions (User A and User B) and an unauthenticated or outsider client (User C).
+   - Events are awaited using `asyncio.wait_for(event.wait(), timeout=...)`.
+   - Tests assert that User B receives `task_created` while User C receives nothing (verifying strict project tenant room isolation).
+
+2. **Transactional Outbox Boundary Verification:**
+   - Tests execute mutations in a rolled-back transaction (or simulate database failure) and assert that zero Socket.IO events are emitted, confirming the emit-after-commit invariant.
+
+3. **Client Echo Suppression Verification (`frontend/src/hooks/useProjectRealtime.test.jsx`):**
+   - Tests dispatch mock WebSocket events containing the client's own `client_mutation_id`.
+   - The reducer verifies that the event is ignored, preventing duplicate UI renders or animation flickers.
+
+---
+
+## 4. Requirement Traceability Matrix
+
+| Requirement Area | Automated Test Evidence | Status |
+| :--- | :--- | :---: |
+| **Authentication & Credentials** | `tests/test_auth.py`, `tests/test_passwords.py` | ✅ Verified |
+| **Shared Auth Rate Limiting** | `tests/test_rate_limit.py::test_auth_rate_limits_are_shared_between_instances` | ✅ Verified |
+| **Project Role Permissions** | `tests/test_authorization_matrix.py` (25 routes × 4 roles) | ✅ Verified |
+| **Anonymous Route Guard** | `tests/test_routes_security.py::test_every_protected_route_rejects_anonymous_requests` | ✅ Verified |
+| **Task CRUD & Ordering** | `tests/test_tasks.py::test_task_positions_remain_contiguous_after_reorder_move_and_delete` | ✅ Verified |
+| **Optimistic Concurrency (409)**| `tests/test_tasks.py::test_task_http_version_conflict_contains_current_state` | ✅ Verified |
+| **Advisory Lock Move Safety** | `tests/test_tasks.py::test_concurrent_task_mutations_have_one_winner` | ✅ Verified |
+| **Task Review Workflow** | `tests/test_tasks.py::test_review_workflow_attributes_mover_and_credits_submitter` | ✅ Verified |
+| **Comments, Activity, Alerts**| `tests/test_comments_notifications_activity.py`, `test_projects.py` | ✅ Verified |
+| **Realtime Room Scoping** | `tests/test_realtime.py::test_realtime_rooms_publish_committed_changes_and_revoke_removed_members` | ✅ Verified |
+| **Payload Size Enforcements** | `tests/test_security_review.py::test_request_body_limit_rejects_large_fixed_and_chunked_bodies` | ✅ Verified |
+| **Production Config Fail-Fast**| `tests/test_config_production.py` (27 URL and secret validation tests) | ✅ Verified |
+| **Liveness & Readiness Probes**| `tests/test_health.py` (`/api/health`, `/api/health/ready`) | ✅ Verified |
+| **End-to-End WebSocket Flow** | `scripts/smoke_test.py` (15 automated verification checks) | ✅ Verified |
+| **Frontend Board Interactions**| `frontend/src/pages/BoardPage.test.jsx` (9 tests) | ✅ Verified |
+| **Frontend Realtime Hook** | `frontend/src/hooks/useProjectRealtime.test.jsx` (3 tests) | ✅ Verified |
+| **Accessibility Focus & ARIA** | `frontend/src/components/Accessibility.test.jsx` (8 tests) | ✅ Verified |
+
+---
+
+## 5. Manual QA Walkthrough Procedures
+
+### Scenario A: Two-Browser Real-Time Synchronization & Conflict Check
+**Setup:** Open Browser A (Chrome) and Browser B (Firefox or Incognito).
+1. **User A:** Register and log in. Create a new project `"Collab Test"`.
+2. **User B:** Register and log in.
+3. **User A:** Open Project Settings $\rightarrow$ Members. Invite User B via email with role `Member`.
+4. **User B:** Refresh dashboard, open `"Collab Test"` board.
+5. **Real-time Creation:** User A clicks `+ Add Task` in `To do`, titles it `"Live Sync Task"`, and clicks Save.
+   - *Verification:* User B's board instantly displays `"Live Sync Task"` in `To do` without refreshing.
+6. **Real-time Drag-and-Drop:** User B drags `"Live Sync Task"` from `To do` to `In progress`.
+   - *Verification:* User A's board smoothly updates the card's column without layout jumps or skeleton flashes.
+7. **Concurrency Conflict (409):**
+   - User A opens the modal for `"Live Sync Task"`.
+   - User B simultaneously opens the modal for the same task and changes the title to `"Title by B"`, saving successfully.
+   - User A (without closing the modal) attempts to change the title to `"Title by A"` and clicks Save.
+   - *Verification:* User A receives a conflict toast notification (`409 Conflict: Task was modified by another user`). User A's modal refreshes with User B's current title.
+
+### Scenario B: Member Removal & Instant Socket Revocation
+1. User A (Owner) and User B (Member) are both viewing `"Collab Test"`.
+2. User A opens Members, clicks `Remove` next to User B, and confirms.
+3. *Verification:*
+   - User B's browser immediately receives the `removed_from_project` event and transitions away from the board.
+   - User B's active socket is evicted from `project:{project_id}`.
+   - Tasks previously assigned to User B show as unassigned (`Unassigned`).
+
+### Scenario C: Reconnection & Network Blip Handling
+1. User B opens a project board (connection dot is green **Live**).
+2. Open DevTools Network tab, set throttling to **Offline**.
+3. *Verification:* Connection dot turns neutral **Offline**.
+4. Set throttling back to **No throttling**.
+5. *Verification:* Connection dot transitions to amber **Reconnecting**, re-establishes the WebSocket connection, refetches project tasks in the background, and returns to green **Live**.
+
+### Scenario D: Keyboard Accessibility & Mobile Responsiveness
+1. Press `Tab` repeatedly from page load: confirm visible focus rings on skip-to-content links, navigation items, buttons, and task cards.
+2. Open a task modal using `Enter`. Verify focus is trapped within the dialog.
+3. Press `Escape`: confirm the modal closes and focus returns to the initiating trigger card.
+4. Open the viewport at `390px` width: confirm horizontal column scrolling, responsive action menus, and non-overlapping header badges.

@@ -1,0 +1,13 @@
+# Frontend .dockerignore
+node_modules/
+dist/
+.vite/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.nyc_output/
+*.test.*
+*.spec.*
+# Keep all source files including binary assets

@@ -1,4 +1,5 @@
 import logging
+import logging.config
 
 import socketio
 from fastapi import FastAPI, HTTPException, Request
@@ -6,6 +7,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.common.errors import TaskVersionConflict
 from app.common.request_body_limit import RequestBodySizeLimitMiddleware
@@ -21,10 +23,49 @@ from app.sockets import auth as _socket_auth  # noqa: F401
 from app.sockets import events as _socket_events  # noqa: F401
 from app.sockets.server import sio
 
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+# In production we emit newline-delimited JSON so log-aggregation tools
+# (Datadog, Render log drains, etc.) can parse structured fields.
+# In development we keep the human-readable format.
+# ---------------------------------------------------------------------------
+if settings.is_production:
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "json": {
+                    "()": "logging.Formatter",
+                    # Basic JSON-compatible line; replace with python-json-logger
+                    # if richer structured output is needed.
+                    "fmt": '{"time":"%(asctime)s","level":"%(levelname)s",'
+                    '"name":"%(name)s","msg":%(message)r}',
+                    "datefmt": "%Y-%m-%dT%H:%M:%S",
+                }
+            },
+            "handlers": {
+                "stdout": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "json",
+                    "stream": "ext://sys.stdout",
+                }
+            },
+            "root": {"handlers": ["stdout"], "level": "WARNING"},
+        }
+    )
+
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def api_docs_urls(is_production: bool) -> dict[str, str | None]:
+    """Disable interactive docs in production to reduce attack surface."""
     if is_production:
         return {"docs_url": None, "redoc_url": None, "openapi_url": None}
     return {
@@ -48,6 +89,10 @@ def security_headers(is_production: bool) -> dict[str, str]:
         headers["Strict-Transport-Security"] = "max-age=31536000"
     return headers
 
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
 
 fastapi_app = FastAPI(
     title="TaskFlow API",
@@ -86,9 +131,51 @@ fastapi_app.include_router(notifications_router)
 fastapi_app.include_router(activity_router)
 
 
-@fastapi_app.get("/api/health")
+# ---------------------------------------------------------------------------
+# Health endpoints
+# ---------------------------------------------------------------------------
+
+
+@fastapi_app.get("/api/health", tags=["health"])
 async def health() -> dict[str, str]:
+    """
+    Liveness probe.
+
+    Returns 200 immediately — does NOT touch the database.
+    Use this for container/orchestrator liveness checks where a slow or
+    unavailable DB should not kill an otherwise-running process.
+    """
     return {"status": "ok"}
+
+
+@fastapi_app.get("/api/health/ready", tags=["health"])
+async def health_ready() -> dict[str, str]:
+    """
+    Readiness probe.
+
+    Executes a trivial database query (SELECT 1) to confirm the application
+    can reach its datastore.  Returns 503 if the query fails.
+
+    Security: no secrets, no internal identifiers, no stack traces are
+    included in the response body.
+    """
+    from app.database import engine  # import here to avoid circular at module load
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception:
+        logger.exception("Readiness check failed")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Exception handlers
+# ---------------------------------------------------------------------------
 
 
 @fastapi_app.exception_handler(HTTPException)
@@ -146,4 +233,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+# ---------------------------------------------------------------------------
+# ASGI app — Socket.IO wraps FastAPI
+# ---------------------------------------------------------------------------
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)

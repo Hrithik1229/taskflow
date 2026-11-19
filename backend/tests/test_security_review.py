@@ -239,7 +239,10 @@ async def test_error_responses_shape_and_no_traceback_leakage() -> None:
 def test_production_mode_disables_docs() -> None:
     """Production configuration disables Swagger, ReDoc, and OpenAPI routes."""
     prod_settings = Settings(
-        APP_ENV="production", APP_SECRET_KEY="sec1", JWT_SECRET_KEY="sec2"
+        APP_ENV="production",
+        APP_SECRET_KEY="a" * 32,
+        JWT_SECRET_KEY="b" * 32,
+        CORS_ORIGINS="https://app.example.com",
     )
     assert prod_settings.is_production is True
     assert api_docs_urls(prod_settings.is_production) == {

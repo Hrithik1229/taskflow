@@ -83,6 +83,7 @@ def test_role_matrix_covers_every_protected_api_route() -> None:
         ("POST", "/api/auth/register"),
         ("POST", "/api/auth/login"),
         ("GET", "/api/health"),
+        ("GET", "/api/health/ready"),
     }
     openapi_routes = {
         (method.upper(), path)

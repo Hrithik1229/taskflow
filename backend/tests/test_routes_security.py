@@ -10,6 +10,7 @@ ALLOWLISTED_ANONYMOUS_PATHS = {
     "/api/auth/register",
     "/api/auth/login",
     "/api/health",
+    "/api/health/ready",
     "/docs",
     "/docs/oauth2-redirect",
     "/redoc",

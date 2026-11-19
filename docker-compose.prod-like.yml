@@ -1,0 +1,109 @@
+# docker-compose.prod-like.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# PURPOSE
+#   Reproduce the production topology locally WITHOUT any cloud accounts.
+#   Three services:
+#     db       — PostgreSQL 17 (same version as cloud target)
+#     backend  — backend Docker image (multi-stage, non-root, single worker)
+#     frontend — Vite production build served by Nginx (simulates Vercel CDN)
+#
+# USAGE
+#   # Build everything and start
+#   docker compose -f docker-compose.prod-like.yml up --build
+#
+#   # Run migrations from clean (first run; entrypoint also runs them)
+#   docker compose -f docker-compose.prod-like.yml exec backend alembic upgrade head
+#
+#   # Smoke test against local prod stack
+#   python scripts/smoke_test.py --base-url http://localhost:8000
+#
+#   # Tear down (keep db volume for reuse, or add -v to wipe)
+#   docker compose -f docker-compose.prod-like.yml down
+#
+# ENVIRONMENT
+#   Copy .env.prod-like.example → .env.prod-like and fill in secrets.
+#   The file is git-ignored and never copied into the image.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Database ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:17-alpine
+    container_name: taskflow_prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskflow_prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prod_password_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-taskflow_prod}
+    ports:
+      - "5434:5432"
+    volumes:
+      - prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: taskflow-backend:prod-like
+    container_name: taskflow_prod_backend
+    restart: unless-stopped
+    # entrypoint.sh runs `alembic upgrade head` then starts uvicorn.
+    # Fail-fast: if migrations fail, the container exits non-zero and
+    # docker compose marks the service as unhealthy.
+    entrypoint: ["sh", "/app/entrypoint.sh"]
+    environment:
+      APP_ENV: staging
+      PORT: "8000"
+      # Secrets — provide real values in .env.prod-like (never committed)
+      APP_SECRET_KEY: ${APP_SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      AUTH_RATE_LIMIT_ENABLED: "true"
+      AUTH_RATE_LIMIT_MAX_REQUESTS: "10"
+      AUTH_RATE_LIMIT_WINDOW_SECONDS: "60"
+      MAX_REQUEST_BODY_BYTES: "1048576"
+      # For local prod-like test: use http origins (production would be https)
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      # Postgres connection — sslmode=disable for local Docker network (no TLS needed)
+      DATABASE_URL: >-
+        postgresql://taskflow_prod:prod_password_local_only@db:5432/taskflow_prod
+      # Pool sizing — small for local testing
+      DB_POOL_SIZE: "3"
+      DB_MAX_OVERFLOW: "2"
+      DB_POOL_RECYCLE: "300"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Frontend (Nginx static) ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: taskflow-frontend:prod-like
+    container_name: taskflow_prod_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  prod_postgres_data:
